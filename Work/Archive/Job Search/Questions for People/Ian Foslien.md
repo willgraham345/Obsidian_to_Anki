@@ -1,0 +1,52 @@
+Questions
+- How can I get into the industry?
+	- Opportunities to network
+	- Automate tradeshow
+		- In Chicago (May 6-9)
+			- Should be free, there is an educator/student day
+			- Really really good opportunity to network
+		- A3 association for automation
+			- The organization putting up the thing
+			- Getting connected with that organization is great
+			- Email them, or do something there
+			- Ian is on the board of education for them
+			- The organization that 3M works for the most 
+		- AMRs, Industrial, collaborative, drones
+- Challenges
+	- AI
+		- It doesn't do everything
+	- The most challenging task is usually the most difficult to automate
+		- Upstream manufacturing process is sometimes the way to get in
+	- It's possible, we can help you, but it's not going to do everything
+- Where do you see the industry going?
+	- Making it easier to program
+		- Trying to teach roboticist how to weld is tough
+		- If you can teach a welder how to use a robot, now you have something
+			- How do you make it easy enough that every operator can use a robot?
+			- How do you make it easy on them?
+			- This is where AI can come in and help 
+		- Low-code no-code solutions
+	- Close the loop
+		- Quality check back into the AI 
+		- Improve the process so the next time it can do a better job. 
+		- Most AI works really well for financial algorithms
+			- Physics constraints into AI models and still closing that loop will take robotics applications to next level
+
+Different categories of robotics
+- He's at 3M
+	- 3M uses robots within the manufacturing plants, VERY automated. 
+	- Lots of respirators, adhesives, 
+- He works on customer-facing projects
+	- Abrasives, sanding, grinding, 
+	- Works with industrial manufacturers
+- He looks at everything through the application view:
+	- Pick & place
+	- AMR
+	- Welding
+	- Security
+		- Drones
+	- Inspections
+		- Drones again
+			- Scaffolding/fall protection is avoided
+			- Cleaning
+- Kuka or Fanec

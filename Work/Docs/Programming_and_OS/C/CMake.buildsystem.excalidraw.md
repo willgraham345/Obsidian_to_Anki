@@ -1,0 +1,61 @@
+---
+type: note
+excalidraw-plugin: parsed
+tags:
+  - excalidraw
+---
+==⚠  Switch to EXCALIDRAW VIEW in the MORE OPTIONS menu of this document. ⚠== You can decompress Drawing data with the command palette: 'Decompress current Excalidraw file'. For more info check in plugin settings under 'Saving'
+
+# Stuff
+## CMakeLists.txt
+Overview
+- Where we configure CMake
+## Targets
+Overview
+- 
+Commands:
+- Executables [[CMake.add_executable]]
+- Libraries [[CMake.add_library]]
+### Artifacts
+#### Executables
+#### Libraries
+
+## Build Tree
+
+## Generator
+Overview:
+- Chooses what kind of build system to generate
+- [[CMake.cmake-generators]]
+# Excalidraw Data
+## Text Elements
+cmake --build ^FtZujHKS
+
+## Element Links
+BOAnYhy7: [[CMake.buildsystem.excalidraw#CMakeLists.txt]]
+
+%%
+## Drawing
+```compressed-json
+N4KAkARALgngDgUwgLgAQQQDwMYEMA2AlgCYBOuA7hADTgQBuCpAzoQPYB2KqATLZMzYBXUtiRoIACyhQ4zZAHoFAc0JRJQgEYA6bGwC2CgF7N6hbEcK4OCtptbErHALRY8RMpWdx8Q1TdIEfARcZgRmBShcZQUebTiAFho6IIR9BA4oZm4AbXAwUDAi6HhxdEDsKI5lYOSiyEYWdi40AGYAdn5ixtZOADlOMW4ARgAOHh52gFZ2hITO/MhCDmIs
+
+bghcAAY64sJmABFUqARibgAzAjCupdOJAGsAYQAZDieAJQB5AAl8B4AhTQAVU2AA0QbgtEZsDtIGdCPh8ABlWC1CSCDwwiDMKCkNh3BAAdRI6m4fEWWJxeIQyJgqPQ6JImNxfkkHHC2TQw2uEDYcFw2DUMBGm023OsNTKovJmG4zlaAE5Rtp2psEoqFR1WsN2jwptyhWhnDwEq1ldMpvMpgA2UatVqjTatbnY3H4h5sfBsUjrADEwwQ/v9mM0/Lu
+
+ymZK3dnu9Ehx1mYfMCmUxFGJkhGCu08vaw1aVvlCR4itVk25kgQhGU0mFcSmtrzPFGwwmU1bTvJYROI0bJp4m3l3PDwjgAEliBzUDkALrcs7kdJj7gcIQI7kR4hs5gTwr1EqIbitRYAX25mmEKwAosF0pkJ3l6gVFsVYPvY1goDDdrd0AAxKAALSEAArL4AGlEQgJ8j0WGdySEOBiFwY5v21MZVVVK12lGB1uSIDg7iXFd8FwthsHxb8LnwMJ8hP
+
+fId0gF8ymgd9MR6ZpuHGbk2P6QYynlXMdWGTYrT1clllWGUJFwYZMT2Q5gmQ85LgQblGQkP9AJA8DMThBEaTpLEPUZZ1KXxIliBJNAyV3F0qX0piGVONdhCrTcJy5cleX5QVhSlXdxTpPzikk1A5VGeVtBEzD5XlCZjWGKYPN3A1Qr7OJNltUYrStYYrQmISeCtEzXQQKMvV9QMAyQU9QyHIRIw9crY3IDgE1wJMP25VMLPTTkeGGbRRmmMsKyrD
+
+9OQi6zik7FDNiw5scyS4o6tHcdclg3c51wBdv2XVdyXXNzCP23cz3q4grzSDIsnW7l4MQxTORzB0ElVdpZhtXDlgItA9uI8lPTIrs0Eoq5yTOTgoERQgjDKXLZ0hn9tvhFL213Y5MHG9BsH0XB8VC5xNCEeEnIOygABUWIkHG8YQAmiZJzEMagABBIhlBabHrqYVimCgcwCDZytOYgfQSGIWpuT0TJcGWJhF3uZ5Xk+H5/iBUFwUhaFuS9StlgIS
+
+nMfWGn8ecQnifwUn/KEKA2DecIYbKHEhBUgG5a+Ubq05eIaK6ei9yYtJNBORDNEl8luM5vsBwjpheg4AYOCGNA6ymPs0+GBJVJWNYpJ4WSDiOYHUFB13dzU9A/g+FmOAATUkGB2h0+EkRRJjJH5DRAkxWyzLTEZirstv1kcpkXNZdkB88vkBVgXyxWqQLuRChK4n4jo8vaeVNjrMYs/JFLnDmOJtX7KZ+MbTO5kHt1GpjdAfRFJ/thqsi6oa6N1j
+
+jVrE2ulN+7aO0K0WYRTbyAf1OarQLQjUrF7VAqdIqbGGNvBImdjQTGdAgYuQCd5FXJCtMcd4NrFC2jtY6/1dyHUnr9Iip5zwXWvNdIhd0EJIWLqhF6eU5ioJjruPCP10A5ByBeHABASDkAoAoB4ABZWmqAGaW2YDAbEaRtBuDEZ4Cg2h9DEB9DI2mTw9hZG0FATGU4pyYkBuRJSVEy7FGwEIbEBh9hIVwNweikAdEAAVcRyHcU+SAjiEAfHsCQJw
+
+hwLgrhuiDZS1xighjfuuWRUBsCSAeNYegoRuDOzsadWqSSkKpMujeLGpc4mQASWGdcZV74QB9GcBpn4Kn5PoR8GePk0BBVOl6VYpBklFMYcmNAOTykQDPKQXpNTfQNLOE0sZPSmBtO8nPTpozdIZG2ggAAansQgYcnakBdlBY8zp3BlHvPUJaRRhgwRouADaGw4BwGRGw/xz5yzpHWIhUgBEugMEIAgCgfwWnnSmRIepMzGl/IcaQDqI5jj6GRCV
+
+MFD9KpBmhSIOFCLgWJPoSi6ALU2odR2BAGFWK0g/hbvZEeRkraQDJddeFaQkVUnMpZXgGLYWMoRSy/E1K0S0pJQyzITL9BvHHkdTknLyX6CWbPFKQkgqksxdyiliNkb4FRtK1V+gfyQ2hrDEYeD7EqpFQiw2rN2Yi2CGcTq+RlVcrNcyqIpBWawrYBQcsuBdq0PtcKqAoqLwrBZu6z1IRvwbFDSS5g2BcQIhBNwc+tYZgWmzDmMBow/kxrjfgWu3
+
+AbRKkVH2cYDpEommNZAIwbADBvO6AQF23BNiDVQQVLCacsqTB1L7P1pqA0IvFedSV5R6EkvDCQA1ZQ/p/LHcQFF/s/gegjXo+UDwV3yh/D+TE9tlArnar6C8+wD0Ho3ZBIotETWOqhqZYJcB+acAnFO+1cBAhmGEMwAA4qQcdjtyF/NIQge2Ocv3VFrZADZ+zvwjPJNgIgcBsmHNyRADgmz4Mux1jbPCByjlnr+XYICCBKjMERMhuA0i2CrCDbgC
+
+DNjqJgHPRAdZ25oJHiAA
+```
+%%

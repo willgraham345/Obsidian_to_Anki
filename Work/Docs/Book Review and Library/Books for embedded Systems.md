@@ -1,0 +1,78 @@
+---
+type: note
+---
+# Reviews of Books for Embedded System Developers
+
+Here's links to various reviews of books useful to embedded system developers. They cover subjects from firmware development to hardware. First, one shameless plug - I've written a half dozen embedded books myself. More [**here**](https://www.ganssle.com/book.htm).
+
+- [_**Agile: The Good, the Hype and the Ugly**_](https://www.ganssle.com/books/books1.htm#agilethegood)**,** Bertrand Meyer - This won't make many agile enthusiats happy.
+- **_[Agile Estimating and Planning](https://www.ganssle.com/books/books1.htm)_**, Mike Cohn - Valuable for anyone building software.
+- [_**ARM Assembly Language**_](https://www.ganssle.com/books/books4.htm#armassylang), William Hohl and Christopher Hinds - A pretty decent intro to this subject.
+- **_[Balancing Agility and Discipline](https://www.ganssle.com/books/books1.htm#Balancingagility)_**, Barry Boehm and Richard Turner - Agile or more disciplined?[](https://www.ganssle.com/books/books1.htm#Balancingagility)
+- _**[Bebop to the Boolean Boogie](https://www.ganssle.com/books/books1.htm#bebop)**_, Clive Maxfield - A fun and interesting digital design book.
+- [**_Better Embedded System Software_**](https://www.ganssle.com/books/books1.htm#betterembedded), Phil Koopman - An essential introduction to all areas of building embedded systems.
+- _**[Building Parallel, Embedded, and Real-Time Applications with Ad](https://www.ganssle.com/books/books1.htm#BLDPARRT)**[**a**](https://www.ganssle.com/books/books1.htm),_ John McCormick, Frank SInghoff and Jerome Hugues - One of the best books on using Ada effectively in building embedded systems.
+- _**[C For Everyone](https://www.ganssle.com/books/books4.htm#cforeveryone)**_, Richard Man and CJ Willrich - an excellent intro to embedded C, the language and its use.
+- ****_[CMMI Sur](https://www.ganssle.com/books/books1.htm#CMMI)_**[_vival Guide_](https://www.ganssle.com/books/books1.htm#CMMI)**, Suzanne Garcia and Richard Turner - One guide to CMMI.
+- _**[Computer Approximations](https://www.ganssle.com/books/books1.htm#hart)**_ - The best book on approximations ever. Hart's classic book is a "must have"... if you can find it.
+- _**[Debugging, David Agans](https://www.ganssle.com/books/books1.htm#debugging)**_- A well written, quick read packed with war stories. Every new grad should read this.
+- _**[Design Recipes for FPGAs](https://www.ganssle.com/books/books4.htm#designrecipesfpgas)**_, Peter Wilson - A good selection of VHDL and Verilog design patterns.
+- **_[Digital Apollo](https://www.ganssle.com/books/books1.htm#digitalapollo)_**, David Mindell - An exploration of the relationship between human and computers.
+- _**[Embedded Ethernet and Internet Complete](https://www.ganssle.com/books/books1.htm#Axelson)**_, Jan Axelson - A good "how to" description of building internet-aware applications.
+- _[**Embedded in Embedded**](https://www.ganssle.com/books/books4.htm#eie)_, Jason Long - an introduction to building firmware, based on a Cortex M processor.
+- **[_Embedded Linux Primer_](https://www.ganssle.com/books/books1.htm#EmbeddedLinuxPrimer)**, Christopher Hallinan - A Practical Real World Approach- A book about putting the OS into firmware.
+- _**[Embedded Systems Building Blocks](https://www.ganssle.com/books/books1.htm#bldblk)**_, Jean LaBrosse - If you believe in reuse, well, here's stuff to reuse! Also has his firmware standard.
+- **_[Embedded Systems Design](https://www.ganssle.com/books/books2.htm#esdesign)_**, Arnold Berger - A great intro to the embedded world, with a focus on tools. Also has good hints on selecting processors.
+- _[**Embedded Systems Fundamentals with ARM Cortex-M based Microcontrollers**](https://www.ganssle.com/books/books4.htm#esfundamentals)_ - Alex Dean's excellent intro to the world of embedded work. Targeted at engineering students, it covers hardware and software.
+- **_[Embedded Systems Security](https://www.ganssle.com/books/books2.htm#embsyssec)_**, David and Mike Kleidermacher - Practical methods for safe and secure software systems development.
+- _**[An Embedded Software Primer](https://www.ganssle.com/books/books2.htm#esprimer)**_, David Simon - One of the best introductory books to embedded development around.
+- [_**Embedded Software Timing**_](https://www.ganssle.com/tem/tem434.html#article3), Peter Gliwa - a good look at controlling timing in a system.
+- _**[Embedded Systems Design using the Rabbit 3000 Microprocessor](https://www.ganssle.com/books/books2.htm#sysrabb)**_, Kamal Hyder and Bob Perrin. - Required reading for users of the R3000, and a pretty darn good introduction to the entire realm of embedded systems development as well.
+- _**[Extreme Programming Refactored](https://www.ganssle.com/books/books2.htm#xprefac)**_, Matt Stephens and Doug Rosenberg - An infuriating but enlightening expose of eXtreme Programming.
+- _**[Feature-Driven Development, A Practical Guide to](https://www.ganssle.com/books/books2.htm#fdd)**_, Stephen Palmer and John Felsing - A development methodology that is much more suited to most embedded efforts. Highly recommended.
+- _**[The GE Transistor Manual](https://www.ganssle.com/books/books2.htm#GEtransistormanual)**_. Everything about transistors, in the 1960s at least. A fascinating and fun book for EE history buffs.
+- **_[Guidelines for the Use of the C Language in Vehicle Based Software](https://www.ganssle.com/books/books2.htm#misra)_,** by MISRA - This is a list of dos and don't dos for writing reliable C code. Not a book per se, but a hundred page list of rules.
+- _**[Ham Radio for Dummies](https://www.ganssle.com/books/books2.htm#hamfrdum)**_, by Ward Silver - A great introduction for the newbies to the fascinating world of ham radio.
+- **_[Hands-on XBEE Lab Manual](https://www.ganssle.com/books/books2.htm)_**, Jonathan Titus - Experiments that teach you XBEE wireless communications.
+- _**[High Integrity Software](https://www.ganssle.com/books/books2.htm#highinteg)**,_ John Barnes - A fascinating description of the SPARK programming language.
+- _**[High Speed Digital Design](https://www.ganssle.com/books/books2.htm#hsdesign)**_, Howard Johnson and Martin Graham - The best book around about high-speed issues.
+- **_[How Computers Do Math](https://www.ganssle.com/books/books2.htm#howcompdomath),_** Clive "Max" Maxfield and Alvin Brown - All about the essential workings of computers.
+- **_[If I Only Changed the Software, Why is the Phone on Fire](https://www.ganssle.com/books/books2.htm#phoneonfire)_**, Lisa Simone - A fast paced book, interweaving software and hardware.
+- **_[Introduction to the Personal Software Process](https://www.ganssle.com/books/books2.htm#ipsp)_,** Watts Humphrey - All about the Personal Software Process.
+- _**[MATH Toolkit for Real-Time Programming](https://www.ganssle.com/books/books3.htm#mathtool)**_, Jack Crenshaw - If you're building approximations, or trying to learn about fixed-point math, this is your bible.
+- _**[MicroC/OS-II, The Real Time Kernel](https://www.ganssle.com/books/books3.htm#mucus)**, Jean Labrosse -_ The best book on real time operating systems.
+- **_[Microcontroller Basics with PIC](https://www.ganssle.com/books/books3.htm#mpic)_**, Tam Hanna - a great intro to embedded systems hardware and software using the PIC.
+- **_[MSP430 Microcontroller Basics](https://www.ganssle.com/books/books3.htm#MSP430)_**_, John Davies_ - A great book for novices, as well as experienced developers.
+- _**[uC/OS-III, The Real-Time Kernel](https://www.ganssle.com/books/books3.htm#ucos3)**_, _Jean Labrosse_ - An entirely rewritten version of a classic.
+- _**[Peer Reviews in Software](https://www.ganssle.com/books/books3.htm#peerrev)**,_ Karl Wiegers - The most readable book on code inspections.
+- _**[Peopleware](https://www.ganssle.com/books/books3.htm#plpware)**,_ DeMarco and Lister - Perhaps one of the most important books written about being more productive in a software environment.
+- _**[Principles of Software Engineering Management](https://www.ganssle.com/books/books3.htm#psemgmt)**_, Tom Gilb - An interesting book that's essential to anyone planning to manage a software project.
+- _**[Programming Embedded Systems in C and C++](https://www.ganssle.com/books/books3.htm#barr)**_, Michael Barr - A very good intro book, with a focus on the 186 processor.
+- _**[Real-Time Embedded Multithreading Using ThreadX and MIPS](https://www.ganssle.com/books/books3.htm#Lamie)**_, Edward Lamie - A very organized book with lots of well written code that lends to an excellent presentation of the subject.
+- _**[Real-Time Embedded Systems](https://www.ganssle.com/books/books4.htm#realtimees)**_, Xiaocong Fan - A very complete and heavy read with lots of worthwhile info..
+- _**[Real-Time UML Workshop for Embedded Systems](https://www.ganssle.com/books/books3.htm#rtime)**_, Bruce Powel Douglass - A precise and engaging, humorous at times book, yet clearly focused on getting complex ideas across.
+- _**[Sampling Theory and Analog-to-Digital Conversion](https://www.ganssle.com/tem/tem342.html#article3)**_, Patrick Jungwirth - A solid intro to these issues. Lots of math, but if you're willing to plow though it you'll learn a lot.
+- _**[Serial Port Complete](https://www.ganssle.com/books/books3.htm#serial)**_, Jan Axelson - A very complete reference to serial communications.
+- _**[Software Inspection](https://www.ganssle.com/books/books3.htm#softinsp)**_, Tom Gilb and Dorothy Graham - THE book on code inspections.
+- _**[Software Inspection](https://www.ganssle.com/books/books3.htm#softinsp)** - An Industry Best Practice_, IEEE Collection - A good series of papers on software inspections.
+- [**_Statistics in a Nutshell_**](https://www.ganssle.com/books/books3.htm), Paul A Watters and Sarah Boslaugh - an ideal self study book, one of the best.
+- **[_Sunburst and Luminary_](https://www.ganssle.com/blog/blog/sunburst-and-luminary.html)** - Don Eyles - Don's partial autobiography focusing on his work writing the code that controlled the lunar module.
+- _**[TCP/IP Lean](https://www.ganssle.com/books/books3.htm#tcplean)**_, Jeremy Bentham - An intro to TCP/IP.
+- _**[Test Driven Development](https://www.ganssle.com/books/books3.htm#tdd)**_, by Kent Beck - Kent Beck's view of building the system by producing tests first - Flawed but interesting.
+- _**[Test Driven Development for Embedded C](https://www.ganssle.com/books/books3.htm#tddc)**_, James Grenning - hands down, the best book written on the subject.
+- _**[The Art of Designing Embedded Systems](https://www.ganssle.com/book.htm#ades)**_, Jack Ganssle - How to go about building an embedded system, from process issues to tech ideas.
+- _**[The Art of Programming Embedded Systems](https://www.ganssle.com/book.htm#apes)**_, Jack Ganssle - This book is now all but out of print.
+- [**_The Art of Readable Code_**](https://www.ganssle.com/books/books1.htm#readablecode), Dustin Boswell and Trevor Foucher - A gem with solid advice in this quick read.
+- **_[The Definitive Guide to the ARM Cortex-M3](https://www.ganssle.com/books/books1.htm#definguide)_**_,_ Joseph Yiu. A good intro to the very popular Cortex-M3.
+- **_[The Definitive Guide to the ARM Cortex-M0 and Cortex-M0+](https://www.ganssle.com/books/books4.htm#defguidetom0)_**_,_ Joseph Yiu. An excellent book about the Cortex-M0 and M0+.
+- _**[The Digital I/O Handbook](https://www.ganssle.com/books/books1.htm#digithnd)**_, Jon Titus and Tom O'Hanlan. A great introduction to a tough subject.
+- _**[The Elements of Style](https://www.ganssle.com/books/books1.htm#elstyle)**_, William Strunk and E. B. White - If your comments are lousy, so's your code. Here's a short classic about writing decent comments and prose.
+- _**[The Embedded Systems Dictionary](https://www.ganssle.com/book.htm#apes)**_, by Jack Ganssle and Michael Barr - The only single-source of definitions of words used in our industry.
+- [**_The Essential Guide to Digital Signal Processing_**,](https://www.ganssle.com/books/books2.htm#guidetodigsigpro) Richard Lyons and D. Lee Fugal - A book for the vaguely-techie who needs just a bit more that a little familiarity with the subject.
+- [_**The Existential Pleasures of Engineering**_](https://www.ganssle.com/books/books2.htm#ExistentialPleasures), Samuel Florman - If you enjoy the philosophy of engineering, you will like this book.
+- _**[Understanding and UsingC Pointers](https://www.ganssle.com/books/books3.htm#Cpointers)**_**,** Richard Reese - A surprisingly worthwhile new book on using C pointers
+- _**[USB Mass Storage](https://www.ganssle.com/books/books3.htm#usb)**_, by Jan Axelson. The definitive guide to building memory systems using USB.
+- **[_Voice of the Crystal_](https://www.ganssle.com/blog/blog/voice-of-the-crystal.html)**, Pete Friedrichs. Want to build your own radio... including all of the components needed? Here's a how-to.
+- [**_When Computers Were Human_**](https://www.ganssle.com/books/books3.htm#Computerswerehuman), David Alan Grier - Computers used to be flesh and blood.
+- **_[Writing in Software Development](https://www.ganssle.com/books/books3.htm#wsdevel)_,** by Al Stavely. How to create great docs with your code.
+- **_[The Greatest Capitalist Who Ever Lived](https://www.ganssle.com/books/books5.html)_** , by Ralph Watson McElvenny and Marc Wortman

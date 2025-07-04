@@ -16,12 +16,14 @@ import socket
 import subprocess
 import logging
 import hashlib
-try:
-    import gooey
-    GOOEY = True
-except ModuleNotFoundError:
-    print("Gooey not installed, switching to cli...")
-    GOOEY = False
+# Original code, I don't want to deal with the GUI. Leaving GOOEY=False as the default.
+# try:
+#     import gooey
+#     GOOEY = True
+# except ModuleNotFoundError:
+#     print("Gooey not installed, switching to cli...")
+#     GOOEY = False
+GOOEY = False
 
 logging.basicConfig(
     filename='obsidian_to_anki_log.log',

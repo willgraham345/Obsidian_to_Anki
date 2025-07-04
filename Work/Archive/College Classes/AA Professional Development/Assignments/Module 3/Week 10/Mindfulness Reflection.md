@@ -1,0 +1,26 @@
+- I think of the work that I perform in my career or at home. I reflect on how it affects my life, including my physical and emotional wellbeing. With these thoughts in mind, I feel grateful for…
+	- My family
+	- My wife
+	- My education
+	- Financial stability
+	- Food to eat
+	- A body that works most of the time, and physical therapy for when it hurts
+	- 
+-  I would like to incorporate the following mindfulness or self-care practices into my week:
+    - List Activity/ Practice: Daily planning/reflection/meditation
+    - Frequency (e.g., 2 x per week): Every day
+    - When will I engage in this practice (e.g., 8 am): 7:15
+    - Identify people in your life who will influence your ability or motivation to engage in this self-care activity: 
+		- My wife
+		- My managers
+    - Are there any foreseen challenges (e.g., I am not a morning person)? If so, what are some ways to remove these barriers?
+		- I'm not a great morning person. I think I can wake up earlier, start on the day with easy stretches and my leg physical therapy. That would be a good practice to get up and get going. 
+    - List Activity/ Practice: STOP meditation
+    - Frequency (e.g., 2 x per week): Every day, in the middle of the day
+    - When will I engage in this practice (e.g., 8 am): 2pm?
+    - Identify people in your life who will influence your ability or motivation to engage in this self-care activity: 
+		- My managers
+		- Myself
+		- Any afternoon meetings/commitments I have
+    - Are there any foreseen challenges (e.g., I am not a morning person)? If so, what are some ways to remove these barriers?
+		- If I block out this time, I think I can remove some of the barriers. It'll help me to refocus and attack the day again
