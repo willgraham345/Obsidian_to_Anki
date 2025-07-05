@@ -1,0 +1,18 @@
+[project]
+name = "obsidian-to-anki"
+version = "0.1.0"
+description = "A CLI tool for importing regex statements (specifically tasks) into Anki from Obsidian."
+authors = [
+    {name = "Will Graham",email = "willgraham345@gmail.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "markdown (>=3.8.2,<4.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
