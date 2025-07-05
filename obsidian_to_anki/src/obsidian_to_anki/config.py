@@ -11,6 +11,7 @@ from . import globals
 class Config:
     """Deals with saving and loading the configuration file."""
 
+    # FIXME: Won't initialize, has errors
     def __init__(self):
         self.CONFIG_PATH = os.path.expanduser(
             os.path.join(

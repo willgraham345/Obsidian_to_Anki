@@ -25,6 +25,7 @@ class App:
 
     SUPPORTED_EXTS = [".md", ".txt"]
 
+    # FIXME: Won't initialize, has errors
     def __init__(self, config):
         """Execute the main functionality of the script."""
         self.config = config

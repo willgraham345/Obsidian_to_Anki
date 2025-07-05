@@ -4,7 +4,7 @@ import re
 import os
 import urllib.parse
 import html
-import markdown
+# import markdown
 
 from .utils import file_encode
 from . import globals
@@ -30,7 +30,7 @@ class FormatConverter:
     ANKI_DISPLAY_START = r"["
     ANKI_DISPLAY_END = r"]"
 
-    ANKI_MATH_REGEXP = re.compile(r"(\\[[\s\S]*?\\\])|(\\\\([\s\S]*?\\\\)))")
+    ANKI_MATH_REGEXP = re.compile(r"(\[[\s\S]*?\])|(\([\s\S]*?\))")
 
     MATH_REPLACE = "OBSTOANKIMATH"
     INLINE_CODE_REPLACE = "OBSTOANKICODEINLINE"

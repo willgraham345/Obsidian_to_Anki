@@ -3,6 +3,7 @@
 import json
 import urllib.request
 
+# FIXME: Won't initialize, has errors
 class AnkiConnect:
     """Namespace for AnkiConnect functions."""
 

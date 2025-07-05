@@ -12,6 +12,7 @@ from .app import App
 class Directory:
     """Class for managing a directory of files at a time."""
 
+    # FIXME: Won't initialize, has errors
     def __init__(self, abspath, regex=False, onefile=None):
         """Scan directory for files."""
         self.path = abspath

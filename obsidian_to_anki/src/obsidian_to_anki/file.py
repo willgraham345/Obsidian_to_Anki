@@ -11,7 +11,7 @@ from .utils import string_insert, write_safe, findignore, spans
 from .anki_connect import AnkiConnect
 
 class File:
-    """Class for performing script operations at the file-level."""
+    """Class for performing script operations at the file-level. Requires config to be set."""
 
     def __init__(self, filepath):
         """Perform initial file reading and attribute setting."""

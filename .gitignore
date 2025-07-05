@@ -1,1 +1,6 @@
-*__pycache__/*
+__pycache__/
+*.pyc
+*pycache__
+pycache__/*
+pytestcache_/*
+pytest_cache/*
