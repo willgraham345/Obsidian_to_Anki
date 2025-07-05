@@ -10,11 +10,25 @@ from .anki_connect import AnkiConnect
 from .app import App
 
 class Directory:
-    """Class for managing a directory of files at a time."""
+    """Class for managing a directory of files at a time.
 
-    # FIXME: Won't initialize, has errors
-    def __init__(self, abspath, regex=False, onefile=None):
-        """Scan directory for files."""
+    This class handles scanning a directory for supported files, processing them,
+    and generating AnkiConnect requests for adding, updating, and deleting notes.
+    """
+
+    def __init__(self, abspath: str, regex: bool = False, onefile: str = None):
+        """Initializes a Directory object and scans for relevant files.
+
+        It identifies files based on supported extensions, handles single file processing,
+        and skips files that haven't changed since the last scan.
+
+        :param abspath: The absolute path to the directory to scan.
+        :type abspath: str
+        :param regex: A boolean indicating whether to use RegexFile for processing.
+        :type regex: bool
+        :param onefile: Optional. If provided, only this single file will be processed.
+        :type onefile: str, optional
+        """
         self.path = abspath
         self.parent = os.getcwd()
         if regex:
@@ -33,7 +47,7 @@ class Directory:
                         for entry in it
                         if entry.is_file() and os.path.splitext(
                             entry.path
-                        )[1] in App.SUPPORTED_EXTS
+                        )[1] in globals.SUPPORTED_EXTS
                     ], key=lambda file: [
                         int(part) if part.isdigit() else part.lower()
                         for part in re.split(r'(\d+)', file.filename)]
@@ -53,8 +67,15 @@ class Directory:
         self.files = files_changed
         os.chdir(self.parent)
 
-    def requests_1(self):
-        """Get the 1st HTTP request for this directory."""
+    def requests_1(self) -> dict:
+        """Generates the first set of AnkiConnect requests for the files in this directory.
+
+        This includes requests for adding new notes, getting information about notes to be edited,
+        updating existing notes, and deleting notes.
+
+        :returns: A dictionary representing the AnkiConnect 'multi' action request containing all first-stage requests.
+        :rtype: dict
+        """
         logging.info("Forming request 1 for directory" + self.path)
         requests = list()
         logging.info("Adding notes into Anki...")
@@ -102,7 +123,17 @@ class Directory:
             actions=requests
         )
 
-    def parse_requests_1(self, requests_1_response, tags):
+    def parse_requests_1(self, requests_1_response: list, tags: list):
+        """Parses the responses from the first set of AnkiConnect requests.
+
+        This method updates file objects with note and card IDs and triggers
+        further processing like writing IDs back to files and removing empty notes.
+
+        :param requests_1_response: The raw response from the first 'multi' AnkiConnect request.
+        :type requests_1_response: list
+        :param tags: A list of tags to be applied to the notes.
+        :type tags: list
+        """
         response = requests_1_response
         notes_ids = AnkiConnect.parse(response[0])
         cards_ids = AnkiConnect.parse(response[1])
@@ -124,8 +155,14 @@ class Directory:
             file.write_file()
         os.chdir(self.parent)
 
-    def requests_2(self):
-        """Get 2nd big request."""
+    def requests_2(self) -> dict:
+        """Generates the second set of AnkiConnect requests for the files in this directory.
+
+        This includes requests for changing note decks and managing tags.
+
+        :returns: A dictionary representing the AnkiConnect 'multi' action request containing all second-stage requests.
+        :rtype: dict
+        """
         logging.info("Forming request 2 for directory " + self.path)
         requests = list()
         logging.info("Moving cards to target deck...")
@@ -162,6 +199,10 @@ class Directory:
             actions=requests
         )
 
-    def hashes(self):
-        """Return a dictionary of file hashes to use."""
+    def hashes(self) -> dict:
+        """Returns a dictionary of filenames to their corresponding file hashes.
+
+        :returns: A dictionary where keys are filenames and values are their SHA256 hashes.
+        :rtype: dict
+        """
         return {file.filename: file.hash for file in self.files}

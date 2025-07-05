@@ -21,9 +21,12 @@ from .anki_connect import AnkiConnect
 GOOEY = False
 
 class App:
-    """Master class that manages the application."""
+    """Master class that manages the application.
 
-    SUPPORTED_EXTS = [".md", ".txt"]
+    This class serves as the main entry point for the application, handling
+    configuration, data management, argument parsing, and orchestrating the
+    process of adding notes to Anki.
+    """
 
     # FIXME: Won't initialize, has errors
     def __init__(self, config):
@@ -151,7 +154,11 @@ class App:
             self.parser.print_help()
 
     def setup_parser_optionals(self):
-        """Set up optional arguments for the parser."""
+        """Sets up common optional arguments for both CLI and GUI parsers.
+
+        These arguments include options for config management, regex usage,
+        media updates, and recursive scanning.
+        """
         self.parser.add_argument(
             "-c", "--config",
             action="store_true",
@@ -187,7 +194,11 @@ class App:
     if GOOEY:
         @ gooey.Gooey(use_cmd_args=True)
         def setup_gui_parser(self):
-            """Set up the GUI argument parser."""
+            """Sets up the GUI argument parser using Gooey.
+
+            This method defines arguments specific to the graphical user interface,
+            such as file and directory choosers.
+            """
             self.parser = gooey.GooeyParser(
                 description="Add cards to Anki from a markdown or text file."
             )
@@ -209,7 +220,11 @@ class App:
             self.setup_parser_optionals()
 
     def setup_cli_parser(self):
-        """Setup the command-line argument parser."""
+        """Sets up the command-line argument parser using argparse.
+
+        This method defines arguments for command-line execution, including
+        the path to the file or directory to scan.
+        """
         self.parser = argparse.ArgumentParser(
             description="Add cards to Anki from a markdown or text file."
         )
@@ -222,7 +237,11 @@ class App:
         self.setup_parser_optionals()
 
     def gen_regexp(self):
-        """Generate the regular expressions used by the app."""
+        """Generates and compiles the regular expressions used throughout the application.
+
+        These regular expressions are used for parsing notes, decks, tags, and
+        other elements from the input files based on the configured syntax.
+        """
         globals.NOTE_REGEXP = re.compile(
             r"".join(
                 [
@@ -284,8 +303,14 @@ class App:
             globals.CONFIG_DATA["FROZEN_LINE"] + r" - (.*?):\n((?:[^\n][\n]?)+)"
         )
 
-    def get_add_media(self):
-        """Get the AnkiConnect-formatted add_media request."""
+    def get_add_media(self) -> dict:
+        """Generates an AnkiConnect-formatted request to add media files.
+
+        This request includes all media files currently stored in `globals.MEDIA`.
+
+        :returns: A dictionary representing the AnkiConnect 'multi' action request for storing media files.
+        :rtype: dict
+        """
         return AnkiConnect.request(
             "multi",
             actions=[
@@ -299,7 +324,10 @@ class App:
         )
 
     def get_fields(self):
-        """Get the user's current note types and fields."""
+        """Retrieves the user's current note types and their associated fields from Anki.
+
+        The retrieved data is stored in `globals.FIELDS_DICT`.
+        """
         note_types = AnkiConnect.invoke("modelNames")
         fields_request = [
             AnkiConnect.request(
@@ -319,5 +347,8 @@ class App:
         }
 
     def get_ids(self):
-        """Get a list of the currently used card IDs."""
+        """Retrieves a list of currently used card IDs from Anki.
+
+        The retrieved IDs are stored in `globals.EXISTING_IDS`.
+        """
         globals.EXISTING_IDS = AnkiConnect.invoke("findNotes", query="")
