@@ -1,6 +1,5 @@
 """Helper functions for obsidian_to_anki."""
 
-import re
 import os
 import base64
 import time

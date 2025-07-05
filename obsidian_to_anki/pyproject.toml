@@ -14,7 +14,11 @@ dependencies = [
 
 
 [tool.poetry.scripts]
-obsidian-to-anki = "obsidian_to_anki.__main__:main_entry_point"
+obs2anki = "obsidian_to_anki.__main__:main_entry_point"
+# TODO: Add test script for running tests
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

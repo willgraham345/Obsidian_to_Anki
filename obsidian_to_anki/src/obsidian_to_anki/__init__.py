@@ -5,8 +5,8 @@ import logging
 
 from .app import App
 from .config import Config
-from .utils import wait_for_port, load_anki
-from .globals import ANKI_PORT
+# from .utils import wait_for_port, load_anki
+# from .globals import ANKI_PORT
 
 logging.basicConfig(
     filename='obsidian_to_anki_log.log',
