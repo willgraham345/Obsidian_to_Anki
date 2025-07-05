@@ -3,7 +3,7 @@
 from . import main, wait_for_port, load_anki, ANKI_PORT
 from .config import Config
 
-if __name__ == "__main__":
+def main_entry_point():
     print("Attempting to connect to Anki...")
     config = Config()
     try:
@@ -15,3 +15,6 @@ if __name__ == "__main__":
     else:
         print("Connected!")
         main()
+
+if __name__ == "__main__":
+    main_entry_point()
