@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, mock_open
 import configparser
 import os
 import re
@@ -14,7 +14,6 @@ class TestConfig:
         # Reset globals before each test to ensure isolation
         globals.CONFIG_DATA = {}
         globals.NOTE_DICT_TEMPLATE = {"tags": [], "deckName": ""}
-        globals.EMPTY_REGEXP = None
 
     def test_init(self):
         config = Config()
@@ -115,7 +114,6 @@ class TestConfig:
         assert globals.CONFIG_DATA["DECK_LINE"] == re.escape("Deck")
         assert globals.CONFIG_DATA["TAG_LINE"] == re.escape("Tags")
         assert globals.CONFIG_DATA["FROZEN_LINE"] == re.escape("Frozen")
-        assert globals.EMPTY_REGEXP is not None
         assert globals.CONFIG_DATA["EMPTY_REGEXP"] is not None
 
     def test_load_defaults(self):

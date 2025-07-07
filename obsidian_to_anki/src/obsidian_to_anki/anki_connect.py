@@ -2,15 +2,25 @@
 
 import json
 import urllib.request
+import os
+
 
 class AnkiConnect:
     """Namespace for AnkiConnect functions.
 
-    This class provides static methods to interact with the AnkiConnect API,
+    This class provides methods to interact with the AnkiConnect API,
     handling request formatting, invocation, and response parsing.
     """
 
-    def request(action: str, **params) -> dict:
+    def __init__(self, port: int = 8765):
+        """Initializes the AnkiConnect instance with a specific port."""
+        self.port = port
+        self.host = "localhost"
+        if os.environ.get("WSL_DISTRO_NAME"):
+            self.host = "127.0.0.1"
+
+
+    def request(self, action: str, **params) -> dict:
         """Formats an action and its parameters into an AnkiConnect-compatible request.
 
         :param action: The AnkiConnect API action to perform (e.g., "addNote", "findNotes").
@@ -22,7 +32,7 @@ class AnkiConnect:
         """
         return {'action': action, 'params': params, 'version': 6}
 
-    def invoke(action: str, **params) -> dict:
+    def invoke(self, action: str, **params) -> dict:
         """Invokes an AnkiConnect API action with the specified parameters.
 
         This method handles the serialization of the request, sends it to the AnkiConnect
@@ -38,13 +48,13 @@ class AnkiConnect:
                            if the response format is unexpected.
         """
         requestJson = json.dumps(
-            AnkiConnect.request(action, **params)
+            self.request(action, **params)
         ).encode('utf-8')
         response = json.load(urllib.request.urlopen(
-            urllib.request.Request('http://localhost:8765', requestJson)))
-        return AnkiConnect.parse(response)
+            urllib.request.Request(f'http://{self.host}:{self.port}', requestJson)))
+        return self.parse(response)
 
-    def parse(response: dict) -> dict:
+    def parse(self, response: dict) -> dict:
         """Parses the received AnkiConnect response.
 
         This method validates the response structure and extracts the 'result' field.
@@ -55,7 +65,7 @@ class AnkiConnect:
         :rtype: dict
         :raises Exception: If the response has an unexpected number of fields,
                            is missing required fields ('error' or 'result'),
-                           or if the 'error' field indicates an AnkiConnect error.
+                           or if the 'error' afindNotesicates an AnkiConnect error.
         """
         if len(response) != 2:
             raise Exception('response has an unexpected number of fields')
