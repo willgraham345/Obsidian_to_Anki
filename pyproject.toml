@@ -1,0 +1,9 @@
+[project]
+name = "obsidian-to-anki"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "markdown==3.2.2",
+]

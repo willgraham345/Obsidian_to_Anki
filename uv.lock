@@ -1,0 +1,23 @@
+version = 1
+revision = 3
+requires-python = ">=3.12"
+
+[[package]]
+name = "markdown"
+version = "3.2.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/44/30/cb4555416609a8f75525e34cbacfc721aa5b0044809968b2cf553fd879c7/Markdown-3.2.2.tar.gz", hash = "sha256:1fafe3f1ecabfb514a5285fca634a53c1b32a81cb0feb154264d55bf2ff22c17", size = 299658, upload-time = "2020-05-08T17:24:38.435Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a4/63/eaec2bd025ab48c754b55e8819af0f6a69e2b1e187611dd40cbbe101ee7f/Markdown-3.2.2-py3-none-any.whl", hash = "sha256:c467cd6233885534bf0fe96e62e3cf46cfc1605112356c4f9981512b8174de59", size = 88957, upload-time = "2020-05-08T17:24:36.816Z" },
+]
+
+[[package]]
+name = "obsidian-to-anki"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "markdown" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "markdown", specifier = "==3.2.2" }]
