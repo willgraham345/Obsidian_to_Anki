@@ -1,136 +1,128 @@
-# Will's Obsidian_to_Anki
-Working in python, trying to get the same capability as the plugin with more customization  
+# obsidian-to-anki
 
+A CLI tool for syncing flashcard-style patterns from Obsidian markdown notes to Anki via the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) addon.
 
-# Obsidian_to_Anki
-Plugin to add flashcards from a text or markdown file to Anki. Run in Obsidian as a plugin, or from the command-line as a python script. Built with [Obsidian](https://obsidian.md/) markdown syntax in mind. Supports **user-defined custom syntax for flashcards.**  
-See the [Trello](https://trello.com/b/6MXEizGg/obsidiantoanki) for planned features.
+## Prerequisites
 
-## Getting started
+- [Anki](https://apps.ankiweb.net/) running with the AnkiConnect addon installed (default port: 8765)
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/)
 
-Check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)! It has a ton of information, including setup instructions for new users. I will include a copy of the instructions here:
+## Install
 
-## Setup
+```bash
+cd obsidian_to_anki
+uv sync
+```
 
-### All users
-1. Start up [Anki](https://apps.ankiweb.net/), and navigate to your desired profile.
-2. Ensure that you've installed [AnkiConnect](https://git.foosoft.net/alex/anki-connect).
+## First Run (generate config)
 
-### Obsidian plugin users
-3. Have [Obsidian](https://obsidian.md/) downloaded
-4. Search the 'Community plugins' list for this plugin
-5. Install the plugin.
-6. In Anki, navigate to Tools->Addons->AnkiConnect->Config, and change it to look like this:
-<pre>
-{
-    "apiKey": null,
-    "apiLogPath": null,
-    "webBindAddress": "127.0.0.1",
-    "webBindPort": 8765,
-    "webCorsOrigin": "http://localhost",
-    "webCorsOriginList": [
-        "http://localhost",
-        "app://obsidian.md"
-    ]
-}
-</pre>
+Run the CLI with no arguments to generate the default config file:
 
-7. Restart Anki to apply the above changes
-8. With Anki running in the background, load the plugin. This will generate the plugin settings.
+```bash
+uv run obs2anki
+```
 
+This creates `obsidian_to_anki_config.ini` in your current directory with sections `[Syntax]`, `[Defaults]`, `[Obsidian]`, and `[Custom Regexps]`.
 
-You shouldn't need Anki running to load Obsidian in the future, though of course you will need it for using the plugin!
+## Configure Custom Regex Patterns
 
-To run the plugin, look for an Anki icon on your ribbon (the place where buttons such as 'open Graph view' and 'open Quick Switcher' are).
-For more information on use, please check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)!
+Open `obsidian_to_anki_config.ini` and make the following changes.
 
-### Python script users
-3. Install the latest version of [Python](https://www.python.org/downloads/).
-4. If you are a new user, download `obstoanki_setup.py` from the [releases page](https://github.com/Pseudonium/Obsidian_to_Anki/releases), and place it in the folder you want the script installed (for example your notes folder).  
-5. Run `obstoanki_setup.py`, for example by double-clicking it in a file explorer. This will download the latest version of the script and required dependencies automatically. Existing users should be able to run their existing `obstoanki_setup.py` to get the latest version of the script.  
-6. Check the Permissions tab below to ensure the script is able to run.
-7. Run `obsidian_to_anki.py`, for example by double-clicking it in a file explorer. This will generate a config file, `obsidian_to_anki_config.ini`.
+### 1. Enable regex mode
 
-#### Permissions
-The script needs to be able to:
-* Make a config file in the directory the script is installed.
-* Read the file in the directory the script is used.
-* Make a backup file in the directory the script is used.
-* Rename files in the directory the script is used.
-* Remove a backup file in the directory the script is used.
-* Change the current working directory temporarily (so that local image paths are resolved correctly).
+In `[Defaults]`, set:
 
-## Features
+```ini
+[Defaults]
+Regex = True
+```
 
-Current features (check out the wiki for more details):
-* **Custom note types** - You're not limited to the 6 built-in note types of Anki.
-* **Custom scan directory** 
-  * The plugin will scan the entire vault by default
-  * You can also set which directory (includes all sub-directories as well) to scan via plugin settings
-* **Ignore Folders and Files**
-  * You can specify which files and folders to ignore 
-  * This can be done in the settings of this plugin with [Glob syntax](https://en.wikipedia.org/wiki/Glob_(programming)#Syntax).
-  * If you're working on your own globs, you can test them out [here](https://globster.xyz/)
-  * Examples:
-    * `**/*.excalidraw.md` - Ignore all files that end in `.excalidraw.md`
-      * => avoids excalidraw files from being scanned which can be extremely slow
-    * `Template/**` - Ignore all files in the `Template` folder (including subfolders)
-    * `**/private/**` - Ignore all files in folders that are called `private` no matter where they are in the vault
-    * `[Pp]rivate*/**` - Ignore all files and folders in the root of the vault that start with `private` or with `Private`
-* **Updating notes from file** - Your text files are the canonical source of the notes.
-* **Tags**, including **tags for an entire file**.
-* **Adding to user-specified deck** on a *per-file* basis.
-* **Markdown formatting**.
-* **Math formatting**.
-* **Embedded images**. GIFs should work too.
-* **Audio**.
-* **Auto-deleting notes from the file**.
-* **Reading from all files in a directory automatically** - recursively too!
-* **Inline Notes** - Shorter syntax for typing out notes on a single line.
-* **Easy cloze formatting** - A more compact syntax to do Cloze text
-* **Frozen Fields**
-* **Obsidian integration** - A link to the file that made the flashcard, full link and image embed support.
-* **Custom syntax** - Using **regular expressions**, add custom syntax to generate **notes that make sense for you.** Some examples:
-  * RemNote single-line style. `This is how to use::Remnote single-line style`  
-  ![Remnote 1](Images/Remnote_1.png)
-  * Header paragraph style.
-  <pre>
-  # Style
-  This style is suitable for having the header as the front, and the answer as the back
-  </pre>  
-  ![Header 1](Images/Header_1.png)
-  * Question answer style.
-  <pre>
-  Q: How do you use this style?
-  A: Just like this.
-  </pre>  
-  ![Question 1](Images/Question_1.png)
-  * Neuracache #flashcard style.  
-  <pre>
-  In Neuracache style, to make a flashcard you do #flashcard
-  The next lines then become the back of the flashcard
-  </pre>  
-  ![Neuracache 1](Images/Neuracache_1.png)
-  * Ruled style  
-  <pre>
-  How do you use ruled style?
-  ---
-  You need at least three '-' between the front and back of the card.
-  </pre>  
-  ![Ruled 1](Images/Ruled_1.png)
-  * Markdown table style  
-  <pre>
-  | Why might this style be useful? |
-  | ------ |
-  | It looks nice when rendered as HTML in a markdown editor. |
-  </pre>
-  ![Table 2](Images/Table_2.png)
-  * Cloze paragraph style  
-  <pre>
-  The idea of {cloze paragraph style} is to be able to recognise any paragraphs that contain {cloze deletions}.
-  </pre>
-  ![Cloze 1](Images/Cloze_1.png)
+Without this, custom regex patterns are silently ignored.
 
-Note that **all custom syntax is off by default**, and must be programmed into the script via the config file - see the Wiki for more details.
+### 2. Add your patterns to `[Custom Regexps]`
 
-<a href='https://ko-fi.com/K3K52X4L6' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://cdn.ko-fi.com/cdn/kofi1.png?v=2' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+Each key must match an Anki note type name **exactly**. Capture groups map positionally to note fields (first group → first field, second group → second field).
+
+```ini
+[Custom Regexps]
+Basic = ^󰠗 (.+?) ;; (.+)
+Term = ^󰙎 (.+?) ;;; (.+)
+Code = ^`(.+?)` ;;; (.+)
+```
+
+| Config key | Anki note type | Fields | Pattern matches |
+|------------|---------------|--------|-----------------|
+| `Basic` | Basic (built-in) | Front / Back | `󰠗 question ;; answer` |
+| `Term` | Term (create it) | Term / Definition | `󰙎 term ;;; description` |
+| `Code` | Code (create it) | Snippet / Description | `` `code snippet` ;;; description `` |
+
+> **Note:** The icons before `question` and `term` are Nerd Font glyphs (U+F0297 and U+F0257). They require a Nerd Font to display correctly, but the patterns will still match as long as the characters are present in the file.
+
+### 3. Create the Term and Code note types in Anki
+
+For `Basic`, Anki's built-in note type works out of the box. For `Term` and `Code`, create them manually:
+
+1. In Anki, go to **Tools → Manage Note Types → Add**
+2. Choose "Add: Basic" as the starting point
+3. Name it `Term`, then edit its fields to be `Term` and `Definition` (in that order)
+4. Repeat for `Code` with fields `Snippet` and `Description`
+
+Field order must match capture group order in your regex.
+
+## Example Vault Note
+
+```markdown
+# Biology Chapter 3
+
+These are my study notes for the chapter.
+
+󰠗 What is mitosis? ;; Cell division producing two genetically identical daughter cells
+
+The cell cycle has several phases worth memorizing.
+
+󰙎 Interphase ;;; The period between cell divisions; includes G1, S, and G2 phases
+
+Here's a useful Python snippet for data analysis:
+
+`df.groupby('col').agg({'val': 'sum'})` ;;; Group a DataFrame by a column and sum another
+```
+
+## Run the Sync
+
+Sync a single file:
+
+```bash
+uv run obs2anki /path/to/note.md
+```
+
+Sync an entire vault recursively:
+
+```bash
+uv run obs2anki /path/to/vault -R
+```
+
+## How It Works
+
+1. `obs2anki` scans each `.md` file line by line
+2. Lines matching a `[Custom Regexps]` pattern are captured — capture groups populate note fields in order
+3. Notes are sent to Anki via AnkiConnect in two stages: new notes are added, then existing notes are updated
+4. File hashes are tracked so unchanged files are skipped on re-runs
+
+## CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `-f` / `--file` | Target a single file |
+| `-d` / `--dir` | Target a directory |
+| `-r` / `--regex` | Override regex mode on/off |
+| `-R` / `--recurse` | Recurse into subdirectories |
+| `-u` / `--update` | Force update even if file hash unchanged |
+| `-c` / `--config` | Path to a custom config file |
+| `-m` / `--mediaupdate` | Re-sync media attachments |
+
+## Verification
+
+1. Add test lines to a `.md` file using each pattern above
+2. Run `uv run obs2anki path/to/test.md`
+3. Open Anki and confirm the cards appeared in the correct deck with the correct fields populated

@@ -118,3 +118,9 @@
 2025-07-04 18:21:10,368:::DEBUG:::registerExtensions:::Successfully loaded extension "markdown.extensions.tables.TableExtension".
 2025-07-04 18:21:10,368:::DEBUG:::registerExtensions:::Successfully loaded extension "markdown.extensions.nl2br.Nl2BrExtension".
 2025-07-04 18:21:10,369:::DEBUG:::registerExtensions:::Successfully loaded extension "markdown.extensions.sane_lists.SaneListExtension".
+2026-03-18 19:56:10,397:::DEBUG:::registerExtensions:::Successfully loaded extension "markdown.extensions.fenced_code.FencedCodeExtension".
+2026-03-18 19:56:10,401:::DEBUG:::registerExtensions:::Successfully loaded extension "markdown.extensions.footnotes.FootnoteExtension".
+2026-03-18 19:56:10,404:::DEBUG:::registerExtensions:::Successfully loaded extension "markdown.extensions.md_in_html.MarkdownInHtmlExtension".
+2026-03-18 19:56:10,406:::DEBUG:::registerExtensions:::Successfully loaded extension "markdown.extensions.tables.TableExtension".
+2026-03-18 19:56:10,406:::DEBUG:::registerExtensions:::Successfully loaded extension "markdown.extensions.nl2br.Nl2BrExtension".
+2026-03-18 19:56:10,407:::DEBUG:::registerExtensions:::Successfully loaded extension "markdown.extensions.sane_lists.SaneListExtension".
