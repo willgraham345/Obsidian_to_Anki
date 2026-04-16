@@ -7,6 +7,7 @@ participant File
 participant AnkiConnect
 participant "Anki Desktop\n(port 8765)" as Anki
 participant Data
+participant NoteDB
 participant globals
 
 == Pre-Sync: Media Upload ==
@@ -34,13 +35,13 @@ loop for each Directory
   activate Directory
   loop for each File in directory
     Directory -> File : get_add_notes()
-    note right: AnkiConnect "addNote" action\nfor each note in notes_to_add
+    note right: AnkiConnect "addNote" action\nfor each note in notes_to_add\n(includes re-adds from content changes)
     Directory -> File : get_note_info()
     note right: AnkiConnect "notesInfo" action\nfor each id in notes_to_edit
     Directory -> File : get_update_fields()
     note right: AnkiConnect "updateNoteFields"\nfor each note in notes_to_edit
     Directory -> File : get_delete_notes()
-    note right: AnkiConnect "deleteNotes"\nfor all ids in notes_to_delete
+    note right: AnkiConnect "deleteNotes"\nfor all ids in notes_to_delete\n(includes stale IDs from content-changed notes)
   end
   Directory --> App : batched multi-action request
   deactivate Directory
@@ -59,6 +60,12 @@ loop for each Directory
     note right: extract card IDs from notesInfo\nresult for deck-change operations
     Directory -> File : write_ids()
     note right: insert new IDs as comments\nback into the markdown source file
+    Directory -> File : update_db_anki_ids()
+    activate NoteDB
+    note right: for each newly added note,\ncall NoteDB.mark_synced(uuid, anki_id)\nto persist the new Anki ID in the DB
+    File -> NoteDB : mark_synced(uuid, anki_id) [for each new note]
+    NoteDB --> File : (updated)
+    deactivate NoteDB
     Directory -> File : remove_empties()
     note right: remove DELETE markers\nfor successfully deleted notes
     Directory -> File : write_file()
@@ -98,14 +105,22 @@ Directory --> App : {filepath: sha256_hash, ...}
 
 App -> Data : update_data_file({\n  "Added Media": globals.ADDED_MEDIA,\n  "File Hashes": {all_hashes}\n})
 activate Data
-Data -> Data : json.dump to obsidian_to_anki_data.json
+Data -> NoteDB : add_media(filename) [for each new media]
+Data -> NoteDB : set_file_hash(path, sha256) [for each file]
+Data -> Data : json.dump backup to obsidian_to_anki_data.json
+note right: JSON is human-readable backup;\nNoteDB (obsidian_to_anki.db) is primary store
 Data -> globals : (FILE_HASHES used on next run\nto skip unchanged files)
 deactivate Data
 
-note over App, Data
+note over App, NoteDB
   On the next run, Directory.__init__ checks FILE_HASHES
   and skips any file whose SHA256 hash is unchanged,
   avoiding unnecessary re-parsing and Anki API calls.
+
+  NoteDB also enables per-note change detection:
+  if a note's field_1/field_2 differs from the DB record,
+  the old Anki card is deleted and a new one is added
+  (preserving the stable UUID while assigning a new anki_id).
 end note
 
 @enduml
