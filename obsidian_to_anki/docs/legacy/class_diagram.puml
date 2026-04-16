@@ -53,11 +53,9 @@ package "File Processing" {
     + notes_to_add: list
     + notes_to_edit: list
     + notes_to_delete: list
-    + _setup_scan()
     + scan_file()
     + write_ids()
     + write_file()
-    + remove_empties()
     + get_add_notes(): dict
     + get_update_fields(): dict
     + get_delete_notes(): dict
@@ -71,11 +69,9 @@ package "File Processing" {
   }
 
   class RegexFile {
-    - _DOUBLE_NEWLINE_ID_REGEXP: Pattern
     + search(note_type, regexp)
     + add_spans_to_ignore()
     + fix_newline_ids()
-    - {static} _drop_first_char(m): str
   }
 }
 
@@ -138,11 +134,6 @@ class globals <<module>> {
   + NOTE_REGEXP: Pattern
   + INLINE_REGEXP: Pattern
   + EMPTY_REGEXP: Pattern
-  + ANKI_CLOZE_REGEXP: Pattern
-  + OBS_INLINE_MATH_REGEXP: Pattern
-  + OBS_DISPLAY_MATH_REGEXP: Pattern
-  + OBS_CODE_REGEXP: Pattern
-  + OBS_DISPLAY_CODE_REGEXP: Pattern
   + md_parser: Markdown
   + ANKI_PORT: int
 }
@@ -179,8 +170,7 @@ Config ..> globals : writes CONFIG_DATA
 Data ..> globals : writes FILE_HASHES\nADDED_MEDIA
 FormatConverter ..> globals : reads md_parser\nwrites MEDIA
 Note ..> globals : reads FIELDS_DICT\nNOTE_DICT_TEMPLATE
-Directory ..> globals : reads FILE_HASHES
-RegexFile ..> globals : reads OBS_*_REGEXP
+Directory ..> globals : reads FILE_HASHES\nSUPPORTED_EXTS
 App ..> globals : writes FIELDS_DICT\nEXISTING_IDS
 
 @enduml

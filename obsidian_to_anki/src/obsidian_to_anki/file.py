@@ -5,6 +5,9 @@ import re
 import hashlib
 import logging
 
+# Cache compiled regex variants for RegexFile.search() keyed by base pattern string
+_regex_cache: dict[str, tuple] = {}
+
 from . import globals
 from .note import Note, InlineNote, RegexNote
 from .utils import string_insert, write_safe, findignore, spans
@@ -26,6 +29,18 @@ class File:
         with open(self.filename, encoding='utf_8') as f:
             self.file = f.read()
             self.original_file = self.file
+
+    def _setup_scan(self):
+        """Shared initialization for scan_file() in File and RegexFile."""
+        self.setup_frozen_fields_dict()
+        self.setup_target_deck()
+        self.setup_global_tags()
+        self.notes_to_add = []
+        self.id_indexes = []
+        self.notes_to_edit = []
+        self.notes_to_delete = []
+        self.inline_notes_to_add = []
+        self.inline_id_indexes = []
 
     def setup_frozen_fields_dict(self):
         self.frozen_fields_dict = {
@@ -59,15 +74,7 @@ class File:
     def scan_file(self):
         """Sort notes from file into adding vs editing."""
         logging.info("Scanning file " + self.filename + " for notes...")
-        self.setup_frozen_fields_dict()
-        self.setup_target_deck()
-        self.setup_global_tags()
-        self.notes_to_add = list()
-        self.id_indexes = list()
-        self.notes_to_edit = list()
-        self.notes_to_delete = list()
-        self.inline_notes_to_add = list()
-        self.inline_id_indexes = list()
+        self._setup_scan()
         for note_match in globals.NOTE_REGEXP.finditer(self.file):
             note, position = note_match.group(1), note_match.end(1)
             parsed = Note(note).parse(
@@ -253,6 +260,14 @@ class File:
 
 class RegexFile(File):
 
+    _DOUBLE_NEWLINE_ID_REGEXP = re.compile(
+        r"(\r\n|\r|\n){2}(?:<!--)?" + globals.ID_PREFIX + r"\d+"
+    )
+
+    @staticmethod
+    def _drop_first_char(m):
+        return m.group()[1:]
+
     def add_spans_to_ignore(self):
         """Mark sections of the file as places not to expect a note."""
         self.ignore_spans += spans(globals.NOTE_REGEXP, self.file)
@@ -273,17 +288,8 @@ class RegexFile(File):
     def scan_file(self):
         """Sort notes from file into adding vs editing."""
         logging.info("Scanning file" + self.filename + " for notes...")
-        self.setup_frozen_fields_dict()
-        self.setup_target_deck()
-        self.setup_global_tags()
-        self.ignore_spans = list()
-        # The above ensures that the script won't match a RegexNote inside
-        # a Note or InlineNote
-        self.notes_to_add = list()
-        self.id_indexes = list()
-        self.notes_to_edit = list()
-        self.notes_to_delete = list()
-        self.inline_notes_to_add = list()  # To avoid overriding get_add_notes
+        self._setup_scan()
+        self.ignore_spans = []
         self.add_spans_to_ignore()
         for note_type, regexp in globals.CONFIG_DATA["CUSTOM_REGEXPS"].items():
             if regexp:
@@ -300,24 +306,14 @@ class RegexFile(File):
         ignoring matches inside ignore_spans,
         and adding any matches to ignore_spans.
         """
-        regexp_tags_id = re.compile(
-            "".join(
-                [
-                    regexp,
-                    RegexNote.TAG_REGEXP_STR,
-                    RegexNote.ID_REGEXP_STR
-                ]
-            ), flags=re.MULTILINE
-        )
-        regexp_id = re.compile(
-            regexp + RegexNote.ID_REGEXP_STR, flags=re.MULTILINE
-        )
-        regexp_tags = re.compile(
-            regexp + RegexNote.TAG_REGEXP_STR, flags=re.MULTILINE
-        )
-        regexp = re.compile(
-            regexp, flags=re.MULTILINE
-        )
+        if regexp not in _regex_cache:
+            _regex_cache[regexp] = (
+                re.compile(regexp + RegexNote.TAG_REGEXP_STR + RegexNote.ID_REGEXP_STR, re.MULTILINE),
+                re.compile(regexp + RegexNote.ID_REGEXP_STR, re.MULTILINE),
+                re.compile(regexp + RegexNote.TAG_REGEXP_STR, re.MULTILINE),
+                re.compile(regexp, re.MULTILINE),
+            )
+        regexp_tags_id, regexp_id, regexp_tags, regexp = _regex_cache[regexp]
         for match in findignore(regexp_tags_id, self.file, self.ignore_spans):
             # This note has id, so we update it
             self.ignore_spans.append(match.span())
@@ -389,13 +385,7 @@ class RegexFile(File):
 
     def fix_newline_ids(self):
         """Removes double newline then ids from self.file."""
-        double_regexp = re.compile(
-            r"(\r\n|\r|\n){2}(?:<!--)?" + globals.ID_PREFIX + r"\d+"
-        )
-        self.file = double_regexp.sub(
-            lambda x: x.group()[1:],
-            self.file
-        )
+        self.file = self._DOUBLE_NEWLINE_ID_REGEXP.sub(self._drop_first_char, self.file)
 
     def write_ids(self):
         """Write the identifiers to self.file."""
@@ -410,9 +400,3 @@ class RegexFile(File):
             )
         )
         self.fix_newline_ids()
-
-    def remove_empties(self):
-        """Remove empty notes from self.file."""
-        self.file = globals.EMPTY_REGEXP.sub(
-            "", self.file
-        )

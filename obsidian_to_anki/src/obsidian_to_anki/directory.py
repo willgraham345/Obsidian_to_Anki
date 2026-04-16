@@ -7,7 +7,11 @@ import logging
 from . import globals
 from .file import File, RegexFile
 from .anki_connect import AnkiConnect
-from .app import App
+
+
+def _natural_sort_key(file):
+    return [int(p) if p.isdigit() else p.lower() for p in re.split(r'(\d+)', file.filename)]
+
 
 class Directory:
     """Class for managing a directory of files at a time.
@@ -42,15 +46,8 @@ class Directory:
         else:
             with os.scandir() as it:
                 self.files = sorted(
-                    [
-                        self.file_class(entry.path)
-                        for entry in it
-                        if entry.is_file() and os.path.splitext(
-                            entry.path
-                        )[1] in globals.SUPPORTED_EXTS
-                    ], key=lambda file: [
-                        int(part) if part.isdigit() else part.lower()
-                        for part in re.split(r'(\d+)', file.filename)]
+                    [self.file_class(entry.path) for entry in it if entry.is_file()],
+                    key=_natural_sort_key
                 )
         files_changed = []
         for file in self.files:

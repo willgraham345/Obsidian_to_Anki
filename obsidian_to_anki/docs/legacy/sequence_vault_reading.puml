@@ -11,10 +11,10 @@ participant globals
 App -> Directory : __init__(abspath, regex=False)
 activate Directory
 
-loop for each file in directory (all files treated as markdown)
+loop for each .md file in directory
   Directory -> File : __init__(filepath)
   activate File
-  File -> File : read file content (utf-8)
+  File -> File : read file content (utf-8-sig)
   File --> Directory : File instance
   deactivate File
 
@@ -25,8 +25,14 @@ loop for each file in directory (all files treated as markdown)
     Directory -> File : scan_file()
     activate File
 
-    File -> File : _setup_scan()
-    note right: calls setup_frozen_fields_dict(),\nsetup_target_deck(), setup_global_tags()\nand initialises all note lists to []
+    File -> File : setup_frozen_fields_dict()
+    note right: parse "Frozen: field" lines\ninto frozen_fields_dict
+
+    File -> File : setup_target_deck()
+    note right: find DECK_REGEXP match\nin file header
+
+    File -> File : setup_global_tags()
+    note right: find TAG_REGEXP match\nin file header
 
     loop for each NOTE_REGEXP match (START...END block)
       File -> Note : __init__(note_text)

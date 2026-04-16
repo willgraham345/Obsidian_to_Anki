@@ -55,9 +55,6 @@ loop for each test method
     • test_utils: socket.create_connection, time.sleep
     • test_config: configparser.ConfigParser
     • test_data: json.load, json.dump
-    • test_directory: os.scandir, os.chdir
-      (no longer patches App.SUPPORTED_EXTS —
-       directory iterates all files unconditionally)
   end note
   Mocks --> pytest : patched environment ready
   deactivate Mocks

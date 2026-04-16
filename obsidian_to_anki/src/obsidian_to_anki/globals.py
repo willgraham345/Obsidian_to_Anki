@@ -47,4 +47,10 @@ FILE_HASHES = dict()
 
 ANKI_PORT = 8765
 
-ANKI_CLOZE_REGEXP = re.compile(r'{{c\\d+::[\\s\\S]+?}}')
+ANKI_CLOZE_REGEXP = re.compile(r'{{c\d+::[\s\S]+?}}')
+
+# Obsidian source patterns used by RegexFile to exclude non-note regions
+OBS_INLINE_MATH_REGEXP = re.compile(r"(?<!$)\\(?=[\S])(?=[^$])[\s\S]*?\S$")
+OBS_DISPLAY_MATH_REGEXP = re.compile(r"$$\s\S]*?$$")
+OBS_CODE_REGEXP = re.compile(r"(?<!`)(?=[^`])[\s\S]*?`")
+OBS_DISPLAY_CODE_REGEXP = re.compile(r"```[\s\S]*?```")

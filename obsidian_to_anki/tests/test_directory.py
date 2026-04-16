@@ -6,38 +6,33 @@ import re
 from src.obsidian_to_anki.directory import Directory
 from src.obsidian_to_anki.file import File, RegexFile
 from src.obsidian_to_anki.anki_connect import AnkiConnect
-from src.obsidian_to_anki.app import App
 from src.obsidian_to_anki import globals
 
 class TestDirectory:
 
     @pytest.fixture(autouse=True)
     def setup(self):
-        # Reset globals before each test to ensure isolation
         globals.FILE_HASHES = {}
-        # Mock App.SUPPORTED_EXTS as it's a class attribute used in Directory.__init__
-        with patch.object(App, 'SUPPORTED_EXTS', [".md", ".txt"]):
-            yield
+        yield
 
     @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
     @patch('src.obsidian_to_anki.directory.os.chdir')
     @patch('src.obsidian_to_anki.directory.os.path.isdir', return_value=True)
-    @patch('src.obsidian_to_anki.directory.os.path.splitext', side_effect=lambda x: os.path.splitext(x))
     @patch('src.obsidian_to_anki.directory.os.scandir')
     @patch('src.obsidian_to_anki.directory.File')
     @patch('src.obsidian_to_anki.directory.RegexFile')
-    def test_init_directory_scan(self, MockRegexFile, MockFile, mock_scandir, mock_splitext, mock_isdir, mock_chdir, mock_getcwd):
-        # Mock scandir entries
+    def test_init_directory_scan(self, MockRegexFile, MockFile, mock_scandir, mock_isdir, mock_chdir, mock_getcwd):
+        # All files included; directories filtered out
         mock_entry1 = MagicMock(is_file=lambda: True, path="/mock/dir/file1.md")
         mock_entry2 = MagicMock(is_file=lambda: True, path="/mock/dir/file2.txt")
         mock_entry3 = MagicMock(is_file=lambda: False, path="/mock/dir/subdir")
-        mock_entry4 = MagicMock(is_file=lambda: True, path="/mock/dir/image.png") # Unsupported extension
+        mock_entry4 = MagicMock(is_file=lambda: True, path="/mock/dir/image.png")
         mock_scandir.return_value.__enter__.return_value = [mock_entry1, mock_entry2, mock_entry3, mock_entry4]
 
-        # Mock File instances
         mock_file1 = MagicMock(filename="file1.md", hash="hash1")
         mock_file2 = MagicMock(filename="file2.txt", hash="hash2")
-        MockFile.side_effect = [mock_file1, mock_file2]
+        mock_file3 = MagicMock(filename="image.png", hash="hash3")
+        MockFile.side_effect = [mock_file1, mock_file2, mock_file3]
 
         directory_path = "/mock/dir"
         directory = Directory(directory_path)
@@ -45,12 +40,15 @@ class TestDirectory:
         mock_getcwd.assert_called_once()
         mock_chdir.assert_has_calls([call(directory_path), call("/mock/parent")])
         mock_scandir.assert_called_once()
-        assert len(directory.files) == 2
-        assert directory.files[0] == mock_file1
-        assert directory.files[1] == mock_file2
+        assert len(directory.files) == 3
         mock_file1.scan_file.assert_called_once()
         mock_file2.scan_file.assert_called_once()
-        MockFile.assert_has_calls([call("/mock/dir/file1.md"), call("/mock/dir/file2.txt")])
+        mock_file3.scan_file.assert_called_once()
+        MockFile.assert_has_calls([
+            call("/mock/dir/file1.md"),
+            call("/mock/dir/file2.txt"),
+            call("/mock/dir/image.png"),
+        ])
         MockRegexFile.assert_not_called()
 
     @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
