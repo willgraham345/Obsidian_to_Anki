@@ -27,9 +27,9 @@ class TestFile:
             "CUSTOM_REGEXPS": {}
         }
         globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
-        globals.NOTE_REGEXP = re.compile(r"## (.*?)\n(.*?)\n## ", re.DOTALL)
+        globals.NOTE_REGEXP = re.compile(r"## (.+?)\n(.*?)\n## ", re.DOTALL)
         globals.INLINE_REGEXP = re.compile(r"\{\{(.*?)\}\}")
-        globals.EMPTY_REGEXP = re.compile(r"^## \n(?:<!--)?" + re.escape("ID: ") + r"[\s\S]*?\n## ", re.MULTILINE)
+        globals.EMPTY_REGEXP = re.compile(r"^## \n(?:<!--)?ID: (\d+)[\s\S]*?\n## ", re.MULTILINE)
         globals.DECK_REGEXP = re.compile(r"^Deck(?:\n|: )(.*)", re.MULTILINE)
         globals.TAG_REGEXP = re.compile(r"^Tags(?:\n|: )(.*)", re.MULTILINE)
         globals.FROZEN_REGEXP = re.compile(r"Frozen - (.*?):\n((?:[^\n][\n]?)+)")
@@ -103,12 +103,12 @@ class TestFile:
     @patch('src.obsidian_to_anki.file.Note')
     @patch('src.obsidian_to_anki.file.InlineNote')
     def test_scan_file(self, MockInlineNote, MockNote, mock_setup_global_tags, mock_setup_target_deck, mock_setup_frozen_fields_dict):
-        file_content = """
-## Note to Add\ncontent\n## 
-{{Inline Note to Add}}
-## Note to Edit\ncontent\n<!--id:12345-->\n## 
-<!--id:67890-->
-"""
+        file_content = (
+            "\n## Note to Add\ncontent\n## \n"
+            "{{Inline Note to Add}}\n"
+            "## Note to Edit\ncontent\n## \n"
+            "## \nID: 67890\n## \n"
+        )
         file_instance = File("dummy.md")
         file_instance.file = file_content
         file_instance.url = "mock_url"
@@ -138,6 +138,7 @@ class TestFile:
     def test_write_ids(self, mock_string_insert):
         file_instance = File("dummy.md")
         file_instance.file = "original content\n## Note\ncontent\n## \n{{Inline Note}}"
+        original_file = file_instance.file
         file_instance.note_ids = [101, 102]
         file_instance.notes_to_add = ["note1"]
         file_instance.inline_notes_to_add = ["inline_note1"]
@@ -150,7 +151,7 @@ class TestFile:
             (25, "ID: 101\n"),
             (45, "ID: 102 ")
         ]
-        mock_string_insert.assert_called_once_with(file_instance.file, expected_inserts)
+        mock_string_insert.assert_called_once_with(original_file, expected_inserts)
 
     def test_remove_empties(self):
         file_instance = File("dummy.md")

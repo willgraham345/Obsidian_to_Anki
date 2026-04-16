@@ -22,7 +22,7 @@ class File:
         self.path = os.path.abspath(filepath)
         if globals.CONFIG_DATA["Vault"] and globals.VAULT_PATH_REGEXP.search(self.path):
             self.url = "obsidian://vault/{}".format(
-                globals.VAULT_PATH_REGEXP.search(self.path).group()
+                globals.VAULT_PATH_REGEXP.search(self.path).group(1)
             ).replace("\\", "/")
         else:
             self.url = ""

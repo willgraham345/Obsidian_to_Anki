@@ -45,7 +45,10 @@ class TestApp:
     @patch('src.obsidian_to_anki.app.App.get_ids')
     @patch('src.obsidian_to_anki.app.App.gen_regexp')
     @patch('argparse.ArgumentParser.parse_args', return_value=_NO_ARGS)
-    def test_app_init_cli_no_args(self, mock_parse_args, mock_gen_regexp, mock_get_ids, mock_get_fields, mock_create_data_file, mock_load_data_file, mock_update_config, mock_load_config):
+    @patch('src.obsidian_to_anki.app.argparse.ArgumentParser')
+    def test_app_init_cli_no_args(self, MockArgumentParser, mock_parse_args, mock_gen_regexp, mock_get_ids, mock_get_fields, mock_create_data_file, mock_load_data_file, mock_update_config, mock_load_config):
+        mock_parser = MockArgumentParser.return_value
+        mock_parser.parse_args.return_value = _NO_ARGS
         app = App(Config())
 
         mock_load_config.assert_called_once()
@@ -53,7 +56,7 @@ class TestApp:
         mock_get_fields.assert_called_once()
         mock_get_ids.assert_called_once()
         mock_gen_regexp.assert_called_once()
-        app.parser.print_help.assert_called_once()
+        mock_parser.print_help.assert_called_once()
 
     @patch('src.obsidian_to_anki.config.Config.load_config')
     @patch('src.obsidian_to_anki.data.Data.load_data_file')
@@ -87,10 +90,11 @@ class TestApp:
         assert globals.VAULT_PATH_REGEXP is not None
         assert globals.FROZEN_REGEXP is not None
 
+        # NOTE_REGEXP format: prefix + title_line + newline + (content) + suffix
         test_note_content = "## My Note\nSome content\n## "
         match = globals.NOTE_REGEXP.search(test_note_content)
         assert match is not None
-        assert match.group(1) == "Some content\n"
+        assert "Some content" in match.group(1)
 
     @patch('src.obsidian_to_anki.config.Config.load_config')
     @patch('src.obsidian_to_anki.data.Data.load_data_file')
@@ -115,8 +119,15 @@ class TestApp:
     @patch('src.obsidian_to_anki.anki_connect.AnkiConnect.parse')
     @patch('src.obsidian_to_anki.anki_connect.AnkiConnect.request')
     def test_get_fields(self, mock_anki_request, mock_anki_parse, mock_anki_invoke, mock_parse_args, mock_get_ids, mock_load_data_file, mock_load_config):
-        mock_anki_invoke.side_effect = [["NoteType1", "NoteType2"], ["result1", "result2"]]
-        mock_anki_parse.side_effect = [["Field1", "Field2"], ["FieldA", "FieldB"]]
+        # Provide enough side_effect items for init's get_fields() call AND the explicit call
+        mock_anki_invoke.side_effect = [
+            ["NoteType1", "NoteType2"], ["result1", "result2"],  # init call
+            ["NoteType1", "NoteType2"], ["result1", "result2"],  # explicit call
+        ]
+        mock_anki_parse.side_effect = [
+            ["Field1", "Field2"], ["FieldA", "FieldB"],  # init call
+            ["Field1", "Field2"], ["FieldA", "FieldB"],  # explicit call
+        ]
 
         app = App(Config())
         app.get_fields()

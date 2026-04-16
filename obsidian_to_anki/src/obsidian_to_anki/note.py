@@ -104,13 +104,13 @@ class InlineNote:
             self.identifier = None
         TAGS = InlineNote.TAG_REGEXP.search(self.text)
         if TAGS is not None:
-            self.tags = TAGS.group(1).split(globals.TAG_SEP)
+            self.tags = [t for t in TAGS.group(1).split(globals.TAG_SEP) if t]
             self.text = self.text[:TAGS.start()]
         else:
             self.tags = list()
         TYPE = InlineNote.TYPE_REGEXP.search(self.text)
         self.note_type = TYPE.group(1)
-        self.text = self.text[TYPE.end():]
+        self.text = self.text[TYPE.end():].lstrip()
         self.field_names = globals.FIELDS_DICT[self.note_type]
         self.current_field = self.field_names[0]
 
@@ -124,9 +124,9 @@ class InlineNote:
                     self.current_field = field
                     word = ""
             fields[self.current_field] += word + " "
-        fields = {
+        return {
             key: FormatConverter.format(
-                value,
+                value.strip(),
                 cloze=(
                     "Cloze" in self.note_type
                     and globals.CONFIG_DATA["CurlyCloze"]
@@ -134,7 +134,23 @@ class InlineNote:
             )
             for key, value in fields.items()
         }
-        return {key: value.strip() for key, value in fields.items()}
+
+    def parse(self, deck, url=None, frozen_fields_dict=None):
+        """Get a properly formatted dictionary of the note."""
+        template = globals.NOTE_DICT_TEMPLATE.copy()
+        template["modelName"] = self.note_type
+        template["fields"] = self.fields
+        if all([
+            globals.CONFIG_DATA.get("Add file link"),
+            globals.CONFIG_DATA.get("Vault"),
+            url
+        ]):
+            FormatConverter.format_note_with_url(template, url)
+        if frozen_fields_dict:
+            FormatConverter.format_note_with_frozen_fields(template, frozen_fields_dict)
+        template["tags"] = template["tags"] + self.tags
+        template["deckName"] = deck
+        return globals.Note_and_id(note=template, id=self.identifier)
 
 
 class RegexNote:

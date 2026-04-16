@@ -37,9 +37,9 @@ class FormatConverter:
     DISPLAY_CODE_REPLACE = "OBSTOANKICODEDISPLAY"
 
     IMAGE_REGEXP = re.compile(r'<img alt=".*?" src="(.*?)"')
-    SOUND_REGEXP = re.compile(r'\[sound:(.+)\]')
+    SOUND_REGEXP = re.compile(r'\[sound:(.+?)\]')
     CLOZE_REGEXP = re.compile(
-        r'(?:(?<!{){(?:c?(\d+)[:|])?(?!{))((?:[^\n][\n]?)+?)(?:(?<!})}(?!}))'
+        r'(?:(?<!{){(?:c?(\d+)[:|]{1,2})?(?!{))((?:[^\n][\n]?)+?)(?:(?<!})}(?!}))'
     )
     URL_REGEXP = re.compile(r'https?://')
 
@@ -244,12 +244,9 @@ class FormatConverter:
         note_text = FormatConverter.fix_image_src(note_text)
         note_text = FormatConverter.fix_audio_src(note_text)
         note_text = note_text.strip()
-        # Remove unnecessary paragraph tag
-        if note_text.startswith(
-            FormatConverter.PARA_OPEN
-        ) and note_text.endswith(
-            FormatConverter.PARA_CLOSE
-        ):
-            note_text = note_text[len(FormatConverter.PARA_OPEN):]
-            note_text = note_text[:-len(FormatConverter.PARA_CLOSE)]
+        # Remove unnecessary paragraph tag (only when single paragraph)
+        if (note_text.startswith(FormatConverter.PARA_OPEN)
+                and note_text.endswith(FormatConverter.PARA_CLOSE)
+                and note_text.count(FormatConverter.PARA_OPEN) == 1):
+            note_text = note_text[len(FormatConverter.PARA_OPEN):-len(FormatConverter.PARA_CLOSE)]
         return note_text

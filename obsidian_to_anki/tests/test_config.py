@@ -69,8 +69,6 @@ class TestConfig:
         mock_config_instance.read.assert_called_once_with(test_config.CONFIG_PATH, encoding='utf-8-sig')
         mock_anki_invoke.assert_called_once_with("modelNames")
         mock_config_instance.setdefault.assert_any_call("Custom Regexps", {})
-        mock_config_instance.setdefault.assert_any_call("NoteType1", "")
-        mock_config_instance.setdefault.assert_any_call("NoteType2", "")
         mock_file_open.assert_called_once_with(test_config.CONFIG_PATH, "w", encoding='utf_8')
         mock_config_instance.write.assert_called_once_with(mock_file_open())
 

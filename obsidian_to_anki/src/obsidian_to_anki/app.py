@@ -247,7 +247,7 @@ class App:
                 [
                     r"^",
                     globals.CONFIG_DATA["NOTE_PREFIX"],
-                    r"\n([\s\S]*?\n)",
+                    r".*?\n([\s\S]*?\n)",
                     globals.CONFIG_DATA["NOTE_SUFFIX"],
                     r"\n?"
                 ]
