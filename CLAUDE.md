@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## Project Overview
 
 A Python CLI tool (`obs2anki`) that syncs flashcards written in Obsidian markdown to Anki via the AnkiConnect API. This is a rewrite of the original Obsidian plugin (`original-plugin/`) — the Python package under `obsidian_to_anki/` is the active development target.
@@ -123,4 +125,4 @@ The Python rewrite is in progress. FIXME comments in `app.py` and `config.py` ma
 
 ## Tests
 
-11 test files under `obsidian_to_anki/tests/` covering all modules. Tests mock AnkiConnect and file I/O. Global state is reset in fixtures for isolation.
+10 test files under `obsidian_to_anki/tests/` covering all modules. Tests mock AnkiConnect and file I/O. Global state is reset in fixtures for isolation.

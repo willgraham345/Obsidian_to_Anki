@@ -1,0 +1,99 @@
+@startuml sequence_vault_reading
+title Reading an Obsidian Vault
+
+participant App
+participant Directory
+participant File
+participant "Note / InlineNote" as Note
+participant FormatConverter
+participant globals
+
+App -> Directory : __init__(abspath, regex=False)
+activate Directory
+
+loop for each .md file in directory
+  Directory -> File : __init__(filepath)
+  activate File
+  File -> File : read file content (utf-8-sig)
+  File --> Directory : File instance
+  deactivate File
+
+  Directory -> globals : check FILE_HASHES[filepath]
+  alt file hash unchanged
+    Directory -> Directory : skip file
+  else file is new or changed
+    Directory -> File : scan_file()
+    activate File
+
+    File -> File : setup_frozen_fields_dict()
+    note right: parse "Frozen: field" lines\ninto frozen_fields_dict
+
+    File -> File : setup_target_deck()
+    note right: find DECK_REGEXP match\nin file header
+
+    File -> File : setup_global_tags()
+    note right: find TAG_REGEXP match\nin file header
+
+    loop for each NOTE_REGEXP match (START...END block)
+      File -> Note : __init__(note_text)
+      activate Note
+      Note -> Note : parse ID from last line
+      Note -> Note : parse Tags from penultimate line
+      Note -> Note : set note_type from first line
+      Note --> File : Note instance
+      deactivate Note
+
+      File -> Note : parse(deck, url, frozen_fields_dict)
+      activate Note
+      Note -> Note : access fields property
+      loop for each field line
+        Note -> FormatConverter : format(field_text, cloze)
+        activate FormatConverter
+        FormatConverter -> FormatConverter : obsidian_to_anki_math()
+        FormatConverter -> FormatConverter : protect math & code blocks
+        FormatConverter -> FormatConverter : curly_to_cloze() [if enabled]
+        FormatConverter -> FormatConverter : markdown_parse() via globals.md_parser
+        FormatConverter -> FormatConverter : restore math (HTML-escaped)
+        FormatConverter -> FormatConverter : get_images() + get_audio()
+        FormatConverter -> globals : store base64 media in MEDIA dict
+        FormatConverter -> FormatConverter : fix_image_src() + fix_audio_src()
+        FormatConverter -> FormatConverter : strip outer <p> tags
+        FormatConverter --> Note : HTML string
+        deactivate FormatConverter
+      end
+      Note -> globals : read NOTE_DICT_TEMPLATE
+      Note --> File : Note_and_id(note_dict, id)
+      deactivate Note
+
+      alt id is None (new note)
+        File -> File : append to notes_to_add\nrecord position in id_indexes
+      else id in globals.EXISTING_IDS (existing)
+        File -> File : append to notes_to_edit
+      else id unknown
+        File -> File : log warning
+      end
+    end
+
+    loop for each INLINE_REGEXP match (STARTI...ENDI)
+      File -> Note : InlineNote.__init__(note_text)
+      File -> Note : parse(deck, url, frozen_fields_dict)
+      note right: same flow as block note;\nfields parsed by space-separated tokens
+      File -> File : append to inline_notes_to_add\nor notes_to_edit
+    end
+
+    loop for each EMPTY_REGEXP match (deleted notes)
+      File -> File : extract ID\nappend to notes_to_delete
+    end
+
+    File --> Directory : (scan complete)
+    deactivate File
+
+    Directory -> Directory : append to files_changed list
+  end
+end
+
+Directory -> Directory : self.files = files_changed
+Directory --> App : Directory instance
+deactivate Directory
+
+@enduml
