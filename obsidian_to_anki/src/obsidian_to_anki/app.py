@@ -8,6 +8,7 @@ import argparse
 from . import globals
 from .config import Config
 from .data import Data
+from .db import NoteDB
 from .directory import Directory
 from .anki_connect import AnkiConnect
 
@@ -32,6 +33,7 @@ class App:
     def __init__(self, config):
         """Execute the main functionality of the script."""
         self.config = config
+        globals.NOTE_DB = NoteDB()
         self.data = Data()
         try:
             self.config.load_config()

@@ -1,18 +1,35 @@
 import pytest
-from unittest.mock import patch, mock_open
+from unittest.mock import patch, MagicMock, mock_open
 import os
 import json
 
 from src.obsidian_to_anki.data import Data
+from src.obsidian_to_anki.db import NoteDB
 from src.obsidian_to_anki import globals
 
-class TestData:
 
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        # Reset globals before each test to ensure isolation
-        globals.ADDED_MEDIA = []
-        globals.FILE_HASHES = {}
+@pytest.fixture(autouse=True)
+def reset_globals():
+    """Reset globals and NOTE_DB before each test."""
+    globals.ADDED_MEDIA = []
+    globals.FILE_HASHES = {}
+    prev_db = globals.NOTE_DB
+    globals.NOTE_DB = None
+    yield
+    if globals.NOTE_DB and globals.NOTE_DB is not prev_db:
+        try:
+            globals.NOTE_DB.close()
+        except Exception:
+            pass
+    globals.NOTE_DB = prev_db
+
+
+def _in_memory_db():
+    """Create a fresh in-memory NoteDB."""
+    return NoteDB(":memory:")
+
+
+class TestData:
 
     def test_init(self):
         data_instance = Data()
@@ -20,46 +37,69 @@ class TestData:
         assert data_instance.DATA_PATH.endswith(expected_path_suffix)
         assert os.path.isabs(data_instance.DATA_PATH)
 
-    @patch('builtins.open', new_callable=mock_open)
-    @patch('json.dump')
-    def test_create_data_file(self, mock_json_dump, mock_file_open):
+    def test_create_data_file_creates_db_and_json(self):
+        db = _in_memory_db()
+        globals.NOTE_DB = db
         data_instance = Data()
-        data_instance.create_data_file()
+        with patch('builtins.open', mock_open()):
+            with patch('json.dump') as mock_dump:
+                data_instance.create_data_file()
+                mock_dump.assert_called_once_with(dict(), unittest_any())
 
-        mock_file_open.assert_called_once_with(data_instance.DATA_PATH, "w")
-        mock_json_dump.assert_called_once_with(dict(), mock_file_open())
-
-    @patch('builtins.open', new_callable=mock_open)
-    @patch('json.dump')
-    def test_update_data_file(self, mock_json_dump, mock_file_open):
+    def test_update_data_file_stores_in_db_and_writes_json(self):
+        db = _in_memory_db()
+        globals.NOTE_DB = db
         data_instance = Data()
-        test_data = {"key": "value"}
-        data_instance.update_data_file(test_data)
+        test_data = {
+            "Added Media": ["img.jpg"],
+            "File Hashes": {"notes/foo.md": "abc123"},
+        }
+        with patch('builtins.open', mock_open()):
+            with patch('json.dump') as mock_dump:
+                data_instance.update_data_file(test_data)
+                assert "img.jpg" in db.get_added_media()
+                assert db.get_file_hash("notes/foo.md") == "abc123"
+                # JSON backup written with current DB state
+                written = mock_dump.call_args[0][0]
+                assert "img.jpg" in written["Added Media"]
+                assert written["File Hashes"]["notes/foo.md"] == "abc123"
 
-        mock_file_open.assert_called_once_with(data_instance.DATA_PATH, "w")
-        mock_json_dump.assert_called_once_with(test_data, mock_file_open())
+    def test_load_data_file_reads_from_db(self):
+        db = _in_memory_db()
+        db.add_media("media1.jpg")
+        db.add_media("media2.jpg")
+        db.set_file_hash("a.md", "hash_a")
+        globals.NOTE_DB = db
+        data_instance = Data()
+        data_instance.load_data_file()
+        assert set(globals.ADDED_MEDIA) == {"media1.jpg", "media2.jpg"}
+        assert globals.FILE_HASHES == {"a.md": "hash_a"}
 
-    @patch('builtins.open', new_callable=mock_open)
-    @patch('json.load')
-    def test_load_data_file(self, mock_json_load, mock_file_open):
-        mock_json_load.return_value = {
-            "Added Media": ["media1", "media2"],
-            "File Hashes": {"file1": "hash1"}
+    def test_load_data_file_migrates_from_json_when_db_empty(self):
+        db = _in_memory_db()
+        globals.NOTE_DB = db
+        legacy = {
+            "Added Media": ["legacy.jpg"],
+            "File Hashes": {"old.md": "oldhash"},
         }
         data_instance = Data()
-        data_instance.load_data_file()
+        with patch('os.path.exists', return_value=True):
+            with patch('builtins.open', side_effect=lambda *a, **kw: __import__('io').StringIO(json.dumps(legacy))):
+                data_instance.load_data_file()
+        assert "legacy.jpg" in globals.ADDED_MEDIA
+        assert globals.FILE_HASHES.get("old.md") == "oldhash"
 
-        mock_file_open.assert_called_once_with(data_instance.DATA_PATH, "r")
-        mock_json_load.assert_called_once_with(mock_file_open())
-        assert globals.ADDED_MEDIA == ["media1", "media2"]
-        assert globals.FILE_HASHES == {"file1": "hash1"}
-
-    @patch('builtins.open', new_callable=mock_open)
-    @patch('json.load')
-    def test_load_data_file_missing_keys(self, mock_json_load, mock_file_open):
-        mock_json_load.return_value = {}
+    def test_load_data_file_empty_db_no_json(self):
+        db = _in_memory_db()
+        globals.NOTE_DB = db
         data_instance = Data()
-        data_instance.load_data_file()
-
+        with patch('os.path.exists', return_value=False):
+            data_instance.load_data_file()
         assert globals.ADDED_MEDIA == []
         assert globals.FILE_HASHES == {}
+
+
+class unittest_any:
+    """Matches any value — for assert_called_once_with when content doesn't matter."""
+    def __eq__(self, other):
+        return True

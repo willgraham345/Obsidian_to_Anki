@@ -6,6 +6,8 @@ import re
 
 MEDIA = dict()
 
+NOTE_DB = None  # NoteDB instance, set by App.__init__()
+
 ID_PREFIX = "ID: "
 TAG_PREFIX = "Tags: "
 TAG_SEP = " "

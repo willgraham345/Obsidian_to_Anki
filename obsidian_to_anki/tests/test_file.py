@@ -38,6 +38,7 @@ class TestFile:
         globals.NOTE_DICT_TEMPLATE = {"tags": [], "deckName": "Default"}
         globals.ID_PREFIX = "ID: "
         globals.TAG_SEP = " "
+        globals.NOTE_DB = None  # disable DB in file tests
         with patch('builtins.open', mock_open(read_data="")):
             yield
 
@@ -299,6 +300,7 @@ class TestRegexFile:
         globals.OBS_DISPLAY_MATH_REGEXP = re.compile(r"\$\$(.*?)\$\$", re.DOTALL)
         globals.OBS_CODE_REGEXP = re.compile(r"(?<!`)`(?!`)(.*?)(?<!`)`(?!`)", re.DOTALL)
         globals.OBS_DISPLAY_CODE_REGEXP = re.compile(r"```[\s\S]*?```")
+        globals.NOTE_DB = None  # disable DB in file tests
         with patch('builtins.open', mock_open(read_data="")):
             yield
 
@@ -354,6 +356,9 @@ class TestRegexFile:
         file_instance.notes_to_edit = []
         file_instance.notes_to_add = []
         file_instance.id_indexes = []
+        file_instance.uuid_for_add = []
+        file_instance.uuid_for_inline_add = []
+        file_instance.notes_to_delete = []
 
         # Mock matches for findignore
         mock_match_id_tags = MagicMock(group=lambda x: "123" if x == 1 else "tag1", span=lambda: (0, 10))
