@@ -1,0 +1,5 @@
+/* From https://github.com/primary-theme/obsidian/issues/71 */
+table.dataview {
+  word-break: normal;
+  overflow-wrap: normal;
+}

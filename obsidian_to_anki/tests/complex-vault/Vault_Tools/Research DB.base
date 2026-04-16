@@ -1,0 +1,105 @@
+filters:
+  and:
+    - file.path.contains("Docs_Research_Industry/")
+    - file.ext != "png"
+    - file.ext != "html"
+properties:
+  file.name:
+    displayName: Name
+views:
+  - type: table
+    name: Source Table
+    filters:
+      and:
+        - file.path.contains("research_citations")
+    order:
+      - file.name
+      - reading-status
+      - type
+      - rating
+      - citation
+      - file.tags
+      - year
+      - dateCreated
+    sort:
+      - property: rating
+        direction: DESC
+      - property: dateCreated
+        direction: DESC
+      - property: date created
+        direction: ASC
+      - property: file.tags
+        direction: DESC
+      - property: year
+        direction: ASC
+    columnSize:
+      file.name: 406
+      note.type: 229
+      note.citation: 130
+  - type: table
+    name: All - To Read
+    filters:
+      and:
+        - file.path.contains("research_citations")
+        - note["reading-status"] != "done"
+    order:
+      - file.name
+      - reading-status
+      - rating
+      - file.tags
+      - dateCreated
+    sort:
+      - property: dateCreated
+        direction: DESC
+      - property: date created
+        direction: ASC
+      - property: file.tags
+        direction: DESC
+      - property: year
+        direction: ASC
+    columnSize:
+      file.name: 406
+      note.type: 229
+      note.citation: 130
+  - type: table
+    name: Topics TOC
+    filters:
+      and:
+        - type == "tag_page"
+    order:
+      - file.name
+      - file.tags
+      - down
+      - sources
+      - reviews
+    sort:
+      - property: formula.Untitled
+        direction: ASC
+      - property: sources
+        direction: DESC
+  - type: table
+    name: Space - To Read
+    filters:
+      and:
+        - file.path.contains("research_citations")
+        - note["reading-status"] != "done"
+        - file.tags.contains("space")
+    order:
+      - file.name
+      - reading-status
+      - rating
+      - dateCreated
+      - file.tags
+    sort:
+      - property: dateCreated
+        direction: DESC
+      - property: date created
+        direction: ASC
+      - property: file.tags
+        direction: DESC
+      - property: year
+        direction: ASC
+    columnSize:
+      file.name: 406
+      note.type: 229
+      note.citation: 130

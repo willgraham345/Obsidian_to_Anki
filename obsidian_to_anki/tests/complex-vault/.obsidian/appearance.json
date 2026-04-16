@@ -1,0 +1,19 @@
+{
+  "accentColor": "",
+  "baseFontSize": 14,
+  "theme": "obsidian",
+  "cssTheme": "PLN",
+  "nativeMenus": false,
+  "showViewHeader": true,
+  "enabledCssSnippets": [
+    "supercharged-links-gen",
+    "mermaid-wrap-fix",
+    "property-map",
+    "hide-properties",
+    "S - Checkboxes"
+  ],
+  "showRibbon": false,
+  "interfaceFontFamily": "JetBrainsMono Nerd Font",
+  "textFontFamily": "JetBrainsMono Nerd Font",
+  "monospaceFontFamily": "JetBrainsMono Nerd Font"
+}
