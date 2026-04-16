@@ -123,6 +123,8 @@ class TestFile:
         MockNote.return_value.parse.side_effect = [mock_note_to_add, mock_note_to_edit]
         MockInlineNote.return_value.parse.return_value = mock_inline_note_to_add
 
+        file_instance.target_deck = "Default"
+        file_instance.global_tags = ""
         file_instance.scan_file()
 
         assert len(file_instance.notes_to_add) == 1
@@ -284,7 +286,7 @@ class TestRegexFile:
         globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
         globals.NOTE_REGEXP = re.compile(r"## (.*?)\n(.*?)\n## ", re.DOTALL)
         globals.INLINE_REGEXP = re.compile(r"\{\{(.*?)\}\}")
-        globals.EMPTY_REGEXP = re.compile(r"^## \n(?:<!--)?" + re.escape("ID: ") + r"[\s\S]*?\n## ", re.MULTILINE)
+        globals.EMPTY_REGEXP = re.compile(r"^## \n(?:<!--)?ID: (\d+)[\s\S]*?\n## ", re.MULTILINE)
         globals.DECK_REGEXP = re.compile(r"^Deck(?:\n|: )(.*)", re.MULTILINE)
         globals.TAG_REGEXP = re.compile(r"^Tags(?:\n|: )(.*)", re.MULTILINE)
         globals.FROZEN_REGEXP = re.compile(r"Frozen - (.*?):\n((?:[^\n][\n]?)+)")
@@ -326,9 +328,7 @@ class TestRegexFile:
     @patch('src.obsidian_to_anki.file.RegexFile.add_spans_to_ignore')
     @patch('src.obsidian_to_anki.file.RegexFile.search')
     def test_scan_file_regex(self, mock_search, mock_add_spans_to_ignore, mock_setup_global_tags, mock_setup_target_deck, mock_setup_frozen_fields_dict):
-        file_content = """
-<!--id:12345-->
-"""
+        file_content = "## \nID: 12345\n## "
         file_instance = RegexFile("dummy.md")
         file_instance.file = file_content
 
@@ -349,6 +349,8 @@ class TestRegexFile:
         file_instance.ignore_spans = []
         file_instance.url = "mock_url"
         file_instance.frozen_fields_dict = {}
+        file_instance.target_deck = "Default"
+        file_instance.global_tags = ""
         file_instance.notes_to_edit = []
         file_instance.notes_to_add = []
         file_instance.id_indexes = []
@@ -380,6 +382,8 @@ class TestRegexFile:
         ]
 
         globals.EXISTING_IDS = [123, 456]
+        MockRegexNote.TAG_REGEXP_STR = ""
+        MockRegexNote.ID_REGEXP_STR = ""
 
         file_instance.search("MyNoteType", "MY_REGEX")
 
@@ -407,6 +411,7 @@ class TestRegexFile:
         file_instance.file = "original content"
         file_instance.note_ids = [101, 102]
         file_instance.id_indexes = [10, 20]
+        original_file = file_instance.file
 
         file_instance.write_ids()
 
@@ -414,6 +419,6 @@ class TestRegexFile:
             (10, "\nID: 101\n"),
             (20, "\nID: 102\n")
         ]
-        mock_string_insert.assert_called_once_with(file_instance.file, expected_inserts)
+        mock_string_insert.assert_called_once_with(original_file, expected_inserts)
         mock_fix_newline_ids.assert_called_once()
 

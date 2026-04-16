@@ -266,7 +266,8 @@ class RegexFile(File):
 
     @staticmethod
     def _drop_first_char(m):
-        return m.group()[1:]
+        first_newline = m.group(1)
+        return m.group()[len(first_newline):]
 
     def add_spans_to_ignore(self):
         """Mark sections of the file as places not to expect a note."""
@@ -391,12 +392,12 @@ class RegexFile(File):
         """Write the identifiers to self.file."""
         logging.info("Writing new note IDs to file," + self.filename + "...")
         self.file = string_insert(
-            self.file, zip(
+            self.file, list(zip(
                 self.id_indexes, [
                     "\n" + File.id_to_str(id, comment=globals.CONFIG_DATA["Comment"])
                     for id in self.note_ids
                     if id is not None
                 ]
-            )
+            ))
         )
         self.fix_newline_ids()

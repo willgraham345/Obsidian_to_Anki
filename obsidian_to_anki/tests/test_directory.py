@@ -132,10 +132,14 @@ class TestDirectory:
 
         # Mock responses from AnkiConnect.parse
         mock_anki_parse.side_effect = [
-            ["note_ids_response1", "note_ids_response2"], # For notes_ids
-            ["card_ids_response1", "card_ids_response2"], # For cards_ids
-            "parsed_note_id1", # For file1.note_ids
-            "parsed_note_id2", # For file2.note_ids
+            ["note_ids_response1", "note_ids_response2"],  # parse(response[0]) → notes_ids
+            ["card_ids_response1", "card_ids_response2"],  # parse(response[1]) → cards_ids
+            ["inner_note1"],                                # parse("note_ids_response1") → iterable for file1
+            "parsed_note_id1",                             # parse("inner_note1") → file1 note id
+            ["inner_note2"],                               # parse("note_ids_response2") → iterable for file2
+            "parsed_note_id2",                             # parse("inner_note2") → file2 note id
+            "card_ids_response1",                          # parse("card_ids_response1") → file1.card_ids
+            "card_ids_response2",                          # parse("card_ids_response2") → file2.card_ids
         ]
 
         requests_1_response = [
@@ -152,7 +156,11 @@ class TestDirectory:
             call("raw_notes_ids_response"),
             call("raw_cards_ids_response"),
             call("note_ids_response1"),
+            call("inner_note1"),
             call("note_ids_response2"),
+            call("inner_note2"),
+            call("card_ids_response1"),
+            call("card_ids_response2"),
         ])
 
         assert mock_file1.note_ids == ["parsed_note_id1"]
