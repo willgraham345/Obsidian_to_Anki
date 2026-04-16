@@ -13,22 +13,22 @@ class FormatConverter:
     """Converting Obsidian formatting to Anki formatting."""
 
     OBS_INLINE_MATH_REGEXP = re.compile(
-        r"(?<!$)\\(?=[\S])(?=[^$])[\s\S]*?\S$"
+        r"(?<!\$)\$(?!\$)(.*?)(?<!\$)\$(?!\$)", re.DOTALL
     )
-    OBS_DISPLAY_MATH_REGEXP = re.compile(r"$$\s\S]*?$$")
+    OBS_DISPLAY_MATH_REGEXP = re.compile(r"\$\$(.*?)\$\$", re.DOTALL)
 
     OBS_CODE_REGEXP = re.compile(
-        r"(?<!`)(?=[^`])[\s\S]*?`"
+        r"(?<!`)`(?!`)(.*?)(?<!`)`(?!`)", re.DOTALL
     )
     OBS_DISPLAY_CODE_REGEXP = re.compile(
         r"```[\s\S]*?```"
     )
 
-    ANKI_INLINE_START = r"\\("
-    ANKI_INLINE_END = r"\\)"
+    ANKI_INLINE_START = r"\("
+    ANKI_INLINE_END = r"\)"
 
-    ANKI_DISPLAY_START = r"["
-    ANKI_DISPLAY_END = r"]"
+    ANKI_DISPLAY_START = r"\["
+    ANKI_DISPLAY_END = r"\]"
 
     ANKI_MATH_REGEXP = re.compile(r"(\[[\s\S]*?\])|(\([\s\S]*?\))")
 

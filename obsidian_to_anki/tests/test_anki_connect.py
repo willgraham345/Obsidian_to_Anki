@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 import os
+import urllib.request
 
 from src.obsidian_to_anki.anki_connect import AnkiConnect
 
@@ -73,20 +74,29 @@ class TestAnkiConnect:
         anki_connect = AnkiConnect(port=custom_port)
         assert anki_connect.port == custom_port
 
+    @patch('src.obsidian_to_anki.anki_connect.json.load')
     @patch('src.obsidian_to_anki.anki_connect.urllib.request.urlopen')
-    def test_invoke_url_construction(self, mock_urlopen):
-        # Test with default port and non-WSL
-        anki_connect_default = AnkiConnect()
-        anki_connect_default.invoke("test")
-        mock_urlopen.assert_called_with(pytest.approx(urllib.request.Request(f'http://localhost:8765', b'{'action': 'test', 'params': {}, 'version': 6}')))
+    def test_invoke_url_construction(self, mock_urlopen, mock_json_load):
+        mock_urlopen.return_value = MagicMock()
+        mock_json_load.return_value = {"result": "ok", "error": None}
 
-        # Test with custom port
-        anki_connect_custom_port = AnkiConnect(port=9999)
-        anki_connect_custom_port.invoke("test")
-        mock_urlopen.assert_called_with(pytest.approx(urllib.request.Request(f'http://localhost:9999', b'{'action': 'test', 'params': {}, 'version': 6}')))
+        # Default port, non-WSL
+        with patch.dict(os.environ, {}, clear=True):
+            anki_connect_default = AnkiConnect()
+            anki_connect_default.invoke("test")
+            req = mock_urlopen.call_args[0][0]
+            assert "localhost" in req.full_url
+            assert "8765" in req.full_url
 
-        # Test with WSL environment
+        # Custom port
+        anki_connect_custom = AnkiConnect(port=9999)
+        anki_connect_custom.invoke("test")
+        req = mock_urlopen.call_args[0][0]
+        assert "9999" in req.full_url
+
+        # WSL environment
         with patch.dict(os.environ, {'WSL_DISTRO_NAME': 'Debian'}, clear=True):
             anki_connect_wsl = AnkiConnect()
             anki_connect_wsl.invoke("test")
-            mock_urlopen.assert_called_with(pytest.approx(urllib.request.Request(f'http://127.0.0.1:8765', b'{'action': 'test', 'params': {}, 'version': 6}')))
+            req = mock_urlopen.call_args[0][0]
+            assert "127.0.0.1" in req.full_url

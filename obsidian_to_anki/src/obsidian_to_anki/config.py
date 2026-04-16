@@ -13,14 +13,14 @@ class Config:
 
     # FIXME: Won't initialize, has errors
     def __init__(self):
-        self.CONFIG_PATH = os.path.expanduser(
+        self.CONFIG_PATH = os.path.normpath(os.path.expanduser(
             os.path.join(
                 os.path.dirname(os.path.realpath(__file__)),
                 "..",
                 "..",
                 "obsidian_to_anki_config.ini"
             )
-        )
+        ))
 
     def setup_syntax(self, config):
         """Sets up default syntax in the config object."""

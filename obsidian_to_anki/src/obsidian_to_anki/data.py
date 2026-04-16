@@ -9,13 +9,13 @@ class Data:
     """Class for managing the data file (not meant to be changed by users.)"""
 
     def __init__(self):
-        self.DATA_PATH = os.path.expanduser(
+        self.DATA_PATH = os.path.normpath(os.path.expanduser(
             os.path.join(
                 os.path.dirname(os.path.realpath(__file__)),
                 "..",
                 "obsidian_to_anki_data.json"
             )
-        )
+        ))
 
     def create_data_file(self):
         """Creates the data file for the script."""
