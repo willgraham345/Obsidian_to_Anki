@@ -1,160 +1,140 @@
-# Plan: SQLite Note Database
+# Plan: Anki Snapshot Table + Comparison View
 
 ## Context
 
-Add an SQLite DB as an intermediary layer between Obsidian (source of truth) and Anki. The DB stores one row per parsed note with a stable UUID. If note content changes between scans, the old Anki card is deleted and a new one created (new anki_id, same UUID). Replaces data.json as primary persistence; data.json written as human-readable backup.
+The DB currently tracks only the *vault* state (parsed notes, file hashes, media). There's no record of what Anki actually holds. Adding an `anki_notes` snapshot table enables side-by-side comparison — surfacing notes that are out of sync, orphaned in Anki, or not yet pushed.
 
-User answers: vault-relative path, field_1/field_2 columns, UUID primary key, DB primary + JSON backup.
+User choices (confirmed via clarification):
+- Populated by a **manual standalone script** (not auto on every sync)
+- Fields per note: anki_id, note_type, field_1, field_2, tags, deck_name, mod_timestamp
+- Comparison surfaces as both a **SQL VIEW** and a **scan_vault.py summary report**
 
 ---
 
-## Schema
+## Change 1: `anki_notes` table + `note_comparison` VIEW in db.py
+
+**File:** `src/obsidian_to_anki/db.py`
+
+### Table schema (added to `_create_tables`)
+```sql
+CREATE TABLE IF NOT EXISTS anki_notes (
+    anki_id       INTEGER PRIMARY KEY,
+    note_type     TEXT NOT NULL,
+    field_1       TEXT,
+    field_2       TEXT,
+    tags          TEXT,    -- JSON array
+    deck_name     TEXT,
+    mod_timestamp INTEGER,
+    synced_at     TEXT NOT NULL
+);
+```
+
+### VIEW (also added to `_create_tables`)
+SQLite 3.39+ supports FULL OUTER JOIN. Joined on `anki_id`:
 
 ```sql
-CREATE TABLE IF NOT EXISTS notes (
-    id          TEXT PRIMARY KEY,   -- UUID (stable across content changes)
-    anki_id     INTEGER,            -- Anki note ID; NULL until synced; changes on content edit
-    file_path   TEXT NOT NULL,      -- vault-relative path (e.g. "deck/note.md")
-    line_number INTEGER NOT NULL,   -- 1-based line of match start in file
-    note_type   TEXT NOT NULL,      -- model name from config (e.g. "Basic", "Cloze")
-    field_1     TEXT,               -- first field HTML (front / cloze text)
-    field_2     TEXT,               -- second field HTML (back); NULL for single-field types
-    image_paths TEXT,               -- JSON array of image filenames (basenames only)
-    tags        TEXT,               -- JSON array of tag strings
-    deck_name   TEXT,               -- target Anki deck
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
+CREATE VIEW IF NOT EXISTS note_comparison AS
+SELECT
+    COALESCE(v.anki_id, a.anki_id)     AS anki_id,
+    COALESCE(v.note_type, a.note_type) AS note_type,
+    v.file_path,
+    v.field_1   AS vault_field_1,
+    a.field_1   AS anki_field_1,
+    v.field_2   AS vault_field_2,
+    a.field_2   AS anki_field_2,
+    v.tags      AS vault_tags,
+    a.tags      AS anki_tags,
+    v.deck_name AS vault_deck,
+    a.deck_name AS anki_deck,
+    a.mod_timestamp,
+    CASE
+        WHEN a.anki_id IS NULL                        THEN 'not_in_anki'
+        WHEN v.anki_id IS NULL                        THEN 'orphan_in_anki'
+        WHEN v.field_1 IS NOT a.field_1
+          OR v.field_2 IS NOT a.field_2               THEN 'modified'
+        ELSE 'synced'
+    END AS status
+FROM notes v
+FULL OUTER JOIN anki_notes a ON v.anki_id = a.anki_id;
+```
 
-CREATE TABLE IF NOT EXISTS file_hashes (
-    file_path   TEXT PRIMARY KEY,   -- vault-relative path
-    sha256      TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
+### New NoteDB methods to add
 
-CREATE TABLE IF NOT EXISTS added_media (
-    filename    TEXT PRIMARY KEY    -- media filenames already uploaded to Anki
-);
+```python
+def upsert_anki_note(self, anki_id, note_type, field_1, field_2,
+                     tags, deck_name, mod_timestamp) -> None:
+    ...  # INSERT OR REPLACE INTO anki_notes ...
+
+def clear_anki_notes(self) -> None:
+    """Wipe table before re-snapshot so stale notes don't linger."""
+
+def get_comparison_summary(self) -> list[dict]:
+    """Returns rows of {status, count} from the note_comparison VIEW."""
+    # SELECT status, COUNT(*) as n FROM note_comparison GROUP BY status ORDER BY n DESC
 ```
 
 ---
 
-## Files to Create / Modify
+## Change 2: New standalone script `snapshot_anki.py`
+
+**Location:** `obsidian_to_anki/snapshot_anki.py` (sibling of `scan_vault.py`)
+
+### Flow
+
+1. Init `NoteDB()` (persistent DB) and `Config().load_config()`
+2. Instantiate `AnkiConnect`; call `invoke("findNotes", query="")` → list of all note IDs
+3. Batch `notesInfo` in chunks of 50 → list of note dicts
+4. **Field extraction**: `notesInfo` returns `fields` as `{name: {value, order}}`. Sort by `order`, take index 0 = field_1, index 1 = field_2 (None if fewer than 2 fields):
+   ```python
+   ordered = sorted(note["fields"].values(), key=lambda f: f["order"])
+   field_1 = ordered[0]["value"] if ordered else None
+   field_2 = ordered[1]["value"] if len(ordered) > 1 else None
+   ```
+5. **Deck lookup**: `notesInfo` returns `cards` (list of card IDs). Collect all card IDs → batch `cardsInfo` → build `{card_id: deck_name}` → map each note's first card to its deck.
+6. `db.clear_anki_notes()` then `db.upsert_anki_note(...)` for every note
+7. Print snapshot + comparison summary
+
+### Report printed
+```
+Anki snapshot complete — 1504 notes stored
+
+Comparison vs vault:
+  synced            1201
+  modified            87
+  not_in_anki         42
+  orphan_in_anki     174
+```
+
+---
+
+## Change 3: scan_vault.py prints comparison if snapshot exists
+
+**File:** `obsidian_to_anki/scan_vault.py`
+
+After the existing DB summary block, add:
+```python
+anki_count = conn.execute("SELECT COUNT(*) FROM anki_notes").fetchone()[0]
+if anki_count:
+    print(f"\nComparison vs Anki snapshot ({anki_count} Anki notes):")
+    for row in conn.execute(
+        "SELECT status, COUNT(*) as n FROM note_comparison GROUP BY status ORDER BY n DESC"
+    ).fetchall():
+        print(f"  {row['status']:20s}  {row['n']:>4d}")
+else:
+    print("\n(No Anki snapshot — run snapshot_anki.py to populate anki_notes)")
+```
+
+---
+
+## Critical Files
 
 | File | Change |
 |------|--------|
-| `src/obsidian_to_anki/db.py` | **New** — `NoteDB` class, all SQL |
-| `src/obsidian_to_anki/data.py` | Modified — use DB as primary, write JSON backup |
-| `src/obsidian_to_anki/globals.py` | Add `NOTE_DB = None` |
-| `src/obsidian_to_anki/file.py` | Capture line numbers; DB upsert + change detection in `scan_file()` |
-| `src/obsidian_to_anki/app.py` | Initialize `NoteDB`, pass to `Data` |
-| `tests/test_db.py` | **New** — unit tests for `NoteDB` |
+| `src/obsidian_to_anki/db.py` | Add `anki_notes` table + `note_comparison` VIEW + 3 new methods |
+| `snapshot_anki.py` (new) | Standalone script — queries Anki, populates `anki_notes`, prints report |
+| `scan_vault.py` | Print comparison summary at end |
 
----
-
-## Implementation
-
-### 1. `db.py` — NoteDB class
-
-```python
-class NoteDB:
-    DB_PATH = ...  # alongside data.json: obsidian_to_anki/obsidian_to_anki.db
-
-    def __init__(self, db_path=None): ...
-    def close(self): ...
-
-    # Notes CRUD
-    def upsert_note(self, uuid, anki_id, file_path, line_number, note_type,
-                    field_1, field_2, image_paths, tags, deck_name) -> None: ...
-    def get_note(self, uuid) -> dict | None: ...
-    def get_note_by_location(self, file_path, line_number, note_type) -> dict | None: ...
-    def delete_note(self, uuid) -> None: ...
-    def get_notes_for_file(self, file_path) -> list[dict]: ...
-
-    # Anki sync
-    def mark_synced(self, uuid, anki_id) -> None: ...
-
-    # File hashes (replaces data.json "File Hashes")
-    def get_file_hash(self, file_path) -> str | None: ...
-    def set_file_hash(self, file_path, sha256) -> None: ...
-    def get_all_file_hashes(self) -> dict: ...
-
-    # Added media (replaces data.json "Added Media")
-    def add_media(self, filename) -> None: ...
-    def get_added_media(self) -> list: ...
-```
-
-DB file path follows same pattern as `data.py`: `__file__/../../obsidian_to_anki.db`.
-
-### 2. `data.py` — DB primary, JSON backup
-
-- `load_data_file()`: load from DB into globals; fall back to JSON on first run (migration)
-- `update_data_file()`: read current DB state, dump to JSON as backup
-- `create_data_file()`: create DB tables + empty JSON backup
-- Keep `globals.ADDED_MEDIA` and `globals.FILE_HASHES` populated from DB (same interface)
-
-### 3. `globals.py`
-
-Add one line: `NOTE_DB = None`
-
-### 4. `file.py` — line numbers + DB upsert
-
-**Line number helper** (add to `File`):
-```python
-def _line_of(self, char_pos: int) -> int:
-    return self.file[:char_pos].count('\n') + 1
-```
-
-**Vault-relative path helper** (add to `File`):
-```python
-def _vault_rel_path(self) -> str:
-    if globals.CONFIG_DATA.get("Vault") and globals.VAULT_PATH_REGEXP.search(self.path):
-        return globals.VAULT_PATH_REGEXP.search(self.path).group(1)
-    return self.path
-```
-
-**Image extraction from HTML fields**:
-```python
-_IMG_SRC = re.compile(r'<img[^>]+src="([^"]+)"')
-
-def _extract_images(fields: dict) -> list[str]:
-    imgs = []
-    for html in fields.values():
-        imgs += _IMG_SRC.findall(html)
-    return imgs
-```
-
-**DB upsert after each parsed note in `scan_file()`** — look up by (file_path, line_no, note_type); if content changed, delete old anki_id and re-add; store uuid→position mapping for post-sync `mark_synced()` calls.
-
-### 5. `app.py` — initialize DB
-
-In `App.__init__()`, after `Data()`:
-```python
-from .db import NoteDB
-globals.NOTE_DB = NoteDB()
-```
-
----
-
-## Change Detection Logic
-
-| DB state | Content match | Action |
-|----------|--------------|--------|
-| No existing record | — | Insert new UUID, add to Anki |
-| Exists, same content | yes | Normal edit path |
-| Exists, content changed | no | Delete old anki_id, re-add (new Anki ID, same UUID) |
-| Exists, no anki_id yet | no | Update DB record only |
-
----
-
-## data.json Backup Format (unchanged)
-
-```json
-{
-  "Added Media": ["file.jpg", ...],
-  "File Hashes": {"vault/path/note.md": "sha256..."}
-}
-```
+No changes to `app.py`, `directory.py`, `note.py`, or `file.py`.
 
 ---
 
@@ -162,6 +142,21 @@ globals.NOTE_DB = NoteDB()
 
 ```bash
 cd obsidian_to_anki
-uv run pytest tests/test_db.py -vvs      # new DB tests
-uv run pytest tests/ -vvs                 # full suite
+
+# 1. Populate vault side; should see "(No Anki snapshot)" message
+uv run python scan_vault.py
+
+# 2. Populate Anki side (Anki must be running with AnkiConnect)
+uv run python snapshot_anki.py
+# → prints snapshot count + comparison summary
+
+# 3. Re-run vault scan — should now show comparison block
+uv run python scan_vault.py
+
+# 4. Query VIEW directly
+sqlite3 obsidian_to_anki.db \
+  "SELECT status, COUNT(*) FROM note_comparison GROUP BY status;"
+
+# 5. Tests still pass (no existing tests touch anki_notes)
+uv run pytest tests/ -q
 ```
