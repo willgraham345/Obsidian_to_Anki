@@ -1,8 +1,10 @@
 """
 Standalone vault scanner — no Anki connection required.
 
-Walks the complex-vault recursively, parses regex notes using the existing
-config, upserts each note into an in-memory SQLite DB, then prints a summary.
+Walks the complex-vault recursively, parses notes using the existing config,
+upserts each note into the persistent obsidian_to_anki.db, then prints a summary.
+
+This is the proving ground: populate and inspect the DB before syncing to Anki.
 
 Usage (from obsidian_to_anki/):
     uv run python scan_vault.py
@@ -20,15 +22,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from obsidian_to_anki import globals
 from obsidian_to_anki.config import Config
 from obsidian_to_anki.db import NoteDB
-from obsidian_to_anki.file import RegexFile
+from obsidian_to_anki.file import File
 from obsidian_to_anki.note import RegexNote
 
 VAULT_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "tests", "complex-vault")
 )
 
-# ── 1. Init in-memory DB ───────────────────────────────────────────────────────
-db = NoteDB(":memory:")
+# ── 1. Init persistent DB (proving ground before Anki sync) ──────────────────
+db = NoteDB()          # writes to obsidian_to_anki.db next to this file
 globals.NOTE_DB = db
 
 # ── 2. Load config (no Anki needed) ───────────────────────────────────────────
@@ -78,36 +80,45 @@ print(f"Vault: {VAULT_PATH}\n")
 from obsidian_to_anki.app import App  # noqa: E402 — just for gen_regexp
 
 def gen_regexp():
-    """Replicate App.gen_regexp() without instantiating App."""
-    note_prefix = globals.CONFIG_DATA["NOTE_PREFIX"]
-    note_suffix = globals.CONFIG_DATA["NOTE_SUFFIX"]
+    """Compile all regexps — identical to App.gen_regexp()."""
     globals.NOTE_REGEXP = re.compile(
-        note_prefix + r"([\s\S]*?)" + note_suffix, re.MULTILINE
+        r"^" + globals.CONFIG_DATA["NOTE_PREFIX"]
+        + r".*?\n([\s\S]*?\n)"
+        + globals.CONFIG_DATA["NOTE_SUFFIX"]
+        + r"\n?",
+        flags=re.MULTILINE,
     )
-    inline_prefix = globals.CONFIG_DATA["INLINE_PREFIX"]
-    inline_suffix = globals.CONFIG_DATA["INLINE_SUFFIX"]
-    globals.INLINE_REGEXP = re.compile(
-        inline_prefix + r"([\s\S]*?)" + inline_suffix
-    )
-    deck_line = globals.CONFIG_DATA["DECK_LINE"]
     globals.DECK_REGEXP = re.compile(
-        r"^" + deck_line + r"(?:\n|: )(.*)", re.MULTILINE
+        r"^" + globals.CONFIG_DATA["DECK_LINE"] + r"(?:\n|: )(.*)",
+        flags=re.MULTILINE,
     )
-    tag_line = globals.CONFIG_DATA["TAG_LINE"]
+    globals.EMPTY_REGEXP = re.compile(
+        r"^" + globals.CONFIG_DATA["NOTE_PREFIX"]
+        + r"\n(?:<!--)?" + globals.ID_PREFIX
+        + r"[\s\S]*?\n" + globals.CONFIG_DATA["NOTE_SUFFIX"],
+        flags=re.MULTILINE,
+    )
     globals.TAG_REGEXP = re.compile(
-        r"^" + tag_line + r"(?:\n|: )(.*)", re.MULTILINE
+        r"^" + globals.CONFIG_DATA["TAG_LINE"] + r"(?:\n|: )(.*)",
+        flags=re.MULTILINE,
     )
-    frozen_line = globals.CONFIG_DATA["FROZEN_LINE"]
-    globals.FROZEN_REGEXP = re.compile(
-        r"^" + frozen_line + r" - (.*?):\n((?:[^\n][\n]?)+)", re.MULTILINE
+    globals.INLINE_REGEXP = re.compile(
+        globals.CONFIG_DATA["INLINE_PREFIX"]
+        + r"(.*?)"
+        + globals.CONFIG_DATA["INLINE_SUFFIX"],
+    )
+    globals.INLINE_EMPTY_REGEXP = re.compile(
+        globals.CONFIG_DATA["INLINE_PREFIX"]
+        + r"\s+(?:<!--)?" + globals.ID_PREFIX + r".*?"
+        + globals.CONFIG_DATA["INLINE_SUFFIX"],
     )
     vault = globals.CONFIG_DATA.get("Vault", "")
-    if vault:
-        globals.VAULT_PATH_REGEXP = re.compile(
-            re.escape(vault) + r"[/\\](.*)"
-        )
-    else:
-        globals.VAULT_PATH_REGEXP = re.compile(r"^$")  # never matches
+    globals.VAULT_PATH_REGEXP = re.compile(
+        re.escape(vault) + r".*" if vault else r"^$"
+    )
+    globals.FROZEN_REGEXP = re.compile(
+        globals.CONFIG_DATA["FROZEN_LINE"] + r" - (.*?):\n((?:[^\n][\n]?)+)"
+    )
 
 gen_regexp()
 
@@ -127,7 +138,7 @@ for root, dirs, files in os.walk(VAULT_PATH):
     for filename in sorted(md_files):
         filepath = os.path.join(root, filename)
         try:
-            rf = RegexFile(filepath)
+            rf = File(filepath)
             rf.scan_file()
         except Exception as e:
             print(f"  [ERROR] {filename}: {e}")

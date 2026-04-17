@@ -4,7 +4,7 @@ import os
 import re
 
 from src.obsidian_to_anki.directory import Directory
-from src.obsidian_to_anki.file import File, RegexFile
+from src.obsidian_to_anki.file import File
 from src.obsidian_to_anki.anki_connect import AnkiConnect
 from src.obsidian_to_anki import globals
 
@@ -20,8 +20,7 @@ class TestDirectory:
     @patch('src.obsidian_to_anki.directory.os.path.isdir', return_value=True)
     @patch('src.obsidian_to_anki.directory.os.scandir')
     @patch('src.obsidian_to_anki.directory.File')
-    @patch('src.obsidian_to_anki.directory.RegexFile')
-    def test_init_directory_scan(self, MockRegexFile, MockFile, mock_scandir, mock_isdir, mock_chdir, mock_getcwd):
+    def test_init_directory_scan(self, MockFile, mock_scandir, mock_isdir, mock_chdir, mock_getcwd):
         # All files included; directories filtered out
         mock_entry1 = MagicMock(is_file=lambda: True, path="/mock/dir/file1.md")
         mock_entry2 = MagicMock(is_file=lambda: True, path="/mock/dir/file2.txt")
@@ -49,7 +48,6 @@ class TestDirectory:
             call("/mock/dir/file2.txt"),
             call("/mock/dir/image.png"),
         ])
-        MockRegexFile.assert_not_called()
 
     @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
     @patch('src.obsidian_to_anki.directory.os.chdir')
