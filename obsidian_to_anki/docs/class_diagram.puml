@@ -45,6 +45,10 @@ package "Persistence" {
     + get_all_file_hashes(): dict
     + add_media(filename)
     + get_added_media(): list
+    + upsert_anki_note(anki_id, note_type,\n  field_1, field_2, tags,\n  deck_name, mod_timestamp)
+    + clear_anki_notes()
+    + get_comparison_summary(): list[dict]
+    + get_comparison_rows(exclude_synced): list[dict]
     + close()
   }
 
@@ -58,6 +62,18 @@ package "Persistence" {
     • file_hashes (file_path PK,
       sha256, updated_at)
     • added_media (filename PK)
+    • anki_notes (anki_id PK,
+      note_type, field_1, field_2,
+      tags, deck_name,
+      mod_timestamp, synced_at)
+
+    SQL VIEW:
+    • note_comparison — LEFT JOIN +
+      UNION of notes ↔ anki_notes
+      on anki_id; status column:
+      not_in_anki | stale_id |
+      modified | synced |
+      orphan_in_anki
   end note
 }
 
@@ -166,6 +182,17 @@ class FormatConverter <<static>> {
   + format_note_with_frozen_fields(note, frozen)
 }
 
+class scan_vault <<script>> {
+  + run_db_scan(vault_path, db): tuple
+  + run_anki_snapshot(db): int
+  + run_diff_output(db, output_path, vault_path)
+  + main()
+  --
+  CLI flags:
+  vault_path (positional)
+  --db  --snapshot  --output  --all
+}
+
 class globals <<module>> {
   + CONFIG_DATA: dict
   + FIELDS_DICT: dict
@@ -218,6 +245,13 @@ RegexNote ..> FormatConverter : calls format()
 
 ' Config and AnkiConnect
 Config ..> AnkiConnect : invoke() on update
+
+' scan_vault relationships
+scan_vault ..> Config    : load_config()
+scan_vault ..> NoteDB    : create / query / upsert
+scan_vault ..> File      : scan_file()
+scan_vault ..> AnkiConnect : invoke findNotes /\n  notesInfo / cardsInfo
+scan_vault ..> globals   : writes FIELDS_DICT\nEXISTING_IDS FILE_HASHES
 
 ' Global state reads/writes
 Config ..> globals : writes CONFIG_DATA

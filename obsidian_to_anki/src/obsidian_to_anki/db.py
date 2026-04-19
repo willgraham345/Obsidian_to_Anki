@@ -52,6 +52,62 @@ class NoteDB:
             CREATE TABLE IF NOT EXISTS added_media (
                 filename    TEXT PRIMARY KEY
             );
+
+            CREATE TABLE IF NOT EXISTS anki_notes (
+                anki_id       INTEGER PRIMARY KEY,
+                note_type     TEXT NOT NULL,
+                field_1       TEXT,
+                field_2       TEXT,
+                tags          TEXT,
+                deck_name     TEXT,
+                mod_timestamp INTEGER,
+                synced_at     TEXT NOT NULL
+            );
+
+            DROP VIEW IF EXISTS note_comparison;
+            CREATE VIEW note_comparison AS
+            SELECT
+                v.anki_id          AS anki_id,
+                v.note_type        AS note_type,
+                v.file_path,
+                v.field_1          AS vault_field_1,
+                a.field_1          AS anki_field_1,
+                v.field_2          AS vault_field_2,
+                a.field_2          AS anki_field_2,
+                v.tags             AS vault_tags,
+                a.tags             AS anki_tags,
+                v.deck_name        AS vault_deck,
+                a.deck_name        AS anki_deck,
+                a.mod_timestamp,
+                CASE
+                    WHEN v.anki_id IS NULL                          THEN 'not_in_anki'
+                    WHEN a.anki_id IS NULL                          THEN 'stale_id'
+                    WHEN v.field_1 IS NOT a.field_1
+                      OR v.field_2 IS NOT a.field_2                THEN 'modified'
+                    ELSE 'synced'
+                END AS status
+            FROM notes v
+            LEFT JOIN anki_notes a ON v.anki_id = a.anki_id
+
+            UNION ALL
+
+            SELECT
+                a.anki_id,
+                a.note_type,
+                NULL  AS file_path,
+                NULL  AS vault_field_1,
+                a.field_1,
+                NULL  AS vault_field_2,
+                a.field_2,
+                NULL  AS vault_tags,
+                a.tags,
+                NULL  AS vault_deck,
+                a.deck_name,
+                a.mod_timestamp,
+                'orphan_in_anki' AS status
+            FROM anki_notes a
+            LEFT JOIN notes v ON a.anki_id = v.anki_id
+            WHERE v.anki_id IS NULL;
         """)
         self._conn.commit()
 
@@ -180,3 +236,62 @@ class NoteDB:
     def get_added_media(self) -> list:
         rows = self._conn.execute("SELECT filename FROM added_media").fetchall()
         return [r["filename"] for r in rows]
+
+    # ------------------------------------------------------------------
+    # Anki snapshot
+    # ------------------------------------------------------------------
+
+    def upsert_anki_note(
+        self,
+        anki_id: int,
+        note_type: str,
+        field_1: str | None,
+        field_2: str | None,
+        tags: list,
+        deck_name: str | None,
+        mod_timestamp: int | None,
+    ) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO anki_notes
+                (anki_id, note_type, field_1, field_2, tags, deck_name,
+                 mod_timestamp, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(anki_id) DO UPDATE SET
+                note_type     = excluded.note_type,
+                field_1       = excluded.field_1,
+                field_2       = excluded.field_2,
+                tags          = excluded.tags,
+                deck_name     = excluded.deck_name,
+                mod_timestamp = excluded.mod_timestamp,
+                synced_at     = excluded.synced_at
+            """,
+            (
+                anki_id, note_type, field_1, field_2,
+                json.dumps(tags),
+                deck_name, mod_timestamp, _now(),
+            ),
+        )
+        self._conn.commit()
+
+    def clear_anki_notes(self) -> None:
+        """Wipe the anki_notes table before re-snapshotting."""
+        self._conn.execute("DELETE FROM anki_notes")
+        self._conn.commit()
+
+    def get_comparison_summary(self) -> list[dict]:
+        """Return [{status, n}, ...] from note_comparison grouped by status."""
+        rows = self._conn.execute(
+            "SELECT status, COUNT(*) AS n FROM note_comparison"
+            " GROUP BY status ORDER BY n DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_comparison_rows(self, exclude_synced: bool = True) -> list[dict]:
+        """Return all rows from note_comparison, optionally skipping synced ones."""
+        query = "SELECT * FROM note_comparison"
+        if exclude_synced:
+            query += " WHERE status != 'synced'"
+        query += " ORDER BY status, note_type, file_path"
+        rows = self._conn.execute(query).fetchall()
+        return [dict(r) for r in rows]
