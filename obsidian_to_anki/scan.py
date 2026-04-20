@@ -1,31 +1,23 @@
 """
-Standalone vault scanner, Anki snapshot, and diff reporter.
+Vault scanner and Anki snapshot. Populates the local DB.
 
-No Anki connection is required for --db. --snapshot requires Anki running
+No Anki connection required for --vault. --anki requires Anki running
 with AnkiConnect on port 8765.
 
 Usage (from obsidian_to_anki/):
-    uv run python scan_vault.py [vault_path] [--db] [--snapshot] [--output [FILE]] [--all]
+    uv run python scan.py [vault_path] [--vault] [--anki] [--all]
 
     vault_path  Path to Obsidian vault (default: tests/complex-vault/)
 
-    --db        Scan vault and populate the notes DB.
-    --snapshot  Query Anki and populate the anki_notes snapshot table.
-    --output    Write diff markdown table to FILE (default: vault_diff.md).
-    --all       Run --db + --snapshot + --output together.
+    --vault     Scan vault and populate the notes DB.
+    --anki      Query Anki and populate the anki_notes snapshot table.
+    --all       Run --vault + --anki together.
 
-    With no flags, --db is implied.
+    With no flags, --vault is implied.
 
-PlantUML diagram: docs/sequence_scan_vault.puml
-
-Statuses produced by the note_comparison VIEW
-----------------------------------------------
-not_in_anki     Vault note has no anki_id — never synced.
-stale_id        Vault note has an anki_id but it is absent from the Anki
-                snapshot (deleted from Anki, or snapshot is outdated).
-modified        Both sides have the note but field content differs.
-synced          Both sides agree on content.
-orphan_in_anki  Note exists in Anki but has no matching vault record.
+Next step after scanning:
+    uv run python diff.py <vault_path>   # generate anki_diff.json + anki_diff.md
+    uv run python write.py --execute     # push changes to Anki
 """
 
 from __future__ import annotations
@@ -35,7 +27,6 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
 from urllib.error import URLError
 
 # ── Make src importable ────────────────────────────────────────────────────────
@@ -50,7 +41,6 @@ from obsidian_to_anki.file import File                        # noqa: E402
 _DEFAULT_VAULT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "tests", "complex-vault")
 )
-_DEFAULT_OUTPUT = "vault_diff.md"
 
 # ── Known field names for common note types ────────────────────────────────────
 _KNOWN_FIELDS: dict[str, list[str]] = {
@@ -138,23 +128,11 @@ def _gen_regexp() -> None:
     )
 
 
-def _strip_html(text: str | None, max_len: int = 80) -> str:
-    """Strip HTML tags and truncate for table display."""
-    if not text:
-        return ""
-    plain = re.sub(r"<[^>]+>", "", text).replace("\n", " ").strip()
-    return (plain[:max_len] + "…") if len(plain) > max_len else plain
-
-
-def _md_cell(text: str) -> str:
-    return text.replace("|", "\\|")
-
-
 # ── Stage 1: vault scan ────────────────────────────────────────────────────────
 
-def run_db_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
+def run_vault_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
     """Walk vault_path, parse notes, upsert into DB. Returns (files, notes)."""
-    print(f"[db] Scanning vault: {vault_path}")
+    print(f"[vault] Scanning vault: {vault_path}")
     files_with_notes = 0
     total_notes = 0
     start_dir = os.getcwd()
@@ -184,11 +162,11 @@ def run_db_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
 
     os.chdir(start_dir)
 
-    print(f"\n[db] Scan complete — {files_with_notes} files, {total_notes} notes")
+    print(f"\n[vault] Scan complete — {files_with_notes} files, {total_notes} notes")
     rows = db._conn.execute(
         "SELECT note_type, COUNT(*) AS n FROM notes GROUP BY note_type ORDER BY n DESC"
     ).fetchall()
-    print("[db] Notes by type:")
+    print("[vault] Notes by type:")
     for row in rows:
         print(f"     {row['note_type']:40s}  {row['n']:>4d}")
 
@@ -197,19 +175,19 @@ def run_db_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
 
 # ── Stage 2: Anki snapshot ─────────────────────────────────────────────────────
 
-def run_anki_snapshot(db: NoteDB) -> int:
+def scan_anki(db: NoteDB) -> int:
     """Query AnkiConnect, populate anki_notes. Returns number of notes stored."""
-    print("\n[snapshot] Connecting to Anki…")
+    print("\n[anki] Connecting to Anki…")
     ac = AnkiConnect()
 
     try:
         note_ids: list[int] = ac.invoke("findNotes", query="")
     except (URLError, Exception) as exc:
-        print(f"[snapshot] ERROR — cannot reach Anki: {exc}")
-        print("[snapshot] Make sure Anki is running with AnkiConnect installed.")
+        print(f"[anki] ERROR — cannot reach Anki: {exc}")
+        print("[anki] Make sure Anki is running with AnkiConnect installed.")
         return 0
 
-    print(f"[snapshot] {len(note_ids)} notes found in Anki")
+    print(f"[anki] {len(note_ids)} notes found in Anki")
 
     # Fetch note details in chunks of 50
     all_notes: list[dict] = []
@@ -255,102 +233,25 @@ def run_anki_snapshot(db: NoteDB) -> int:
             mod_timestamp=note.get("mod"),
         )
 
-    print(f"[snapshot] Stored {len(all_notes)} notes in anki_notes")
+    print(f"[anki] Stored {len(all_notes)} notes in anki_notes")
 
     summary = db.get_comparison_summary()
-    print("[snapshot] Comparison vs vault:")
+    print("[anki] Comparison vs vault:")
     for row in summary:
-        print(f"           {row['status']:20s}  {row['n']:>4d}")
+        print(f"       {row['status']:20s}  {row['n']:>4d}")
 
     return len(all_notes)
-
-
-# ── Stage 3: markdown diff output ─────────────────────────────────────────────
-
-def run_diff_output(db: NoteDB, output_path: str, vault_path: str) -> None:
-    """Write a markdown diff table to output_path."""
-    anki_count = db._conn.execute(
-        "SELECT COUNT(*) FROM anki_notes"
-    ).fetchone()[0]
-
-    summary = db.get_comparison_summary()
-    rows = db.get_comparison_rows(exclude_synced=True)
-
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    lines: list[str] = [
-        "# Obsidian–Anki Diff\n",
-        f"Generated: {now}  \n",
-        f"Vault: `{vault_path}`  \n",
-        f"Anki snapshot: {anki_count} notes\n",
-        "\n---\n",
-        "\n## Summary\n",
-        "\n| Status | Count |",
-        "\n|--------|-------|",
-    ]
-    for row in summary:
-        lines.append(f"\n| {row['status']} | {row['n']} |")
-
-    if not rows:
-        lines.append("\n\n> All notes are synced — no differences found.\n")
-    else:
-        lines += [
-            "\n\n## Non-Synced Notes\n",
-            "\n| Status | Note Type | File Path"
-            " | Vault Field 1 | Vault Field 2"
-            " | Anki Field 1 | Anki Field 2"
-            " | Tags | Deck |",
-            "\n|--------|-----------|-----------|"
-            "---------------|---------------"
-            "|--------------|--------------|"
-            "------|------|",
-        ]
-        for r in rows:
-            vault_tags_raw = r.get("vault_tags") or r.get("anki_tags") or "[]"
-            try:
-                tag_list = json.loads(vault_tags_raw)
-                tags_str = " ".join(tag_list)
-            except (json.JSONDecodeError, TypeError):
-                tags_str = str(vault_tags_raw)
-
-            rel_path = ""
-            if r.get("file_path"):
-                try:
-                    rel_path = os.path.relpath(r["file_path"], vault_path)
-                except ValueError:
-                    rel_path = r["file_path"]
-
-            lines.append(
-                f"\n| {r['status']}"
-                f" | {_md_cell(r.get('note_type') or '')}"
-                f" | {_md_cell(rel_path)}"
-                f" | {_md_cell(_strip_html(r.get('vault_field_1')))}"
-                f" | {_md_cell(_strip_html(r.get('vault_field_2')))}"
-                f" | {_md_cell(_strip_html(r.get('anki_field_1')))}"
-                f" | {_md_cell(_strip_html(r.get('anki_field_2')))}"
-                f" | {_md_cell(tags_str)}"
-                f" | {_md_cell(r.get('vault_deck') or r.get('anki_deck') or '')}"
-                f" |"
-            )
-
-    content = "".join(lines) + "\n"
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as fh:
-        fh.write(content)
-
-    print(f"\n[output] Diff written to: {output_path}")
-    print(f"[output] {len(rows)} non-synced rows included")
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="scan_vault",
+        prog="scan",
         description=(
-            "Vault scanner, Anki snapshot, and diff reporter.\n\n"
-            "With no flags, --db is implied (vault scan only, no Anki needed).\n"
-            "Use --all to run all three stages in sequence."
+            "Vault scanner and Anki snapshot. Populates the local DB.\n\n"
+            "With no flags, --vault is implied (vault scan only, no Anki needed).\n"
+            "Run diff.py afterwards to generate the diff manifest."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -361,26 +262,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Path to Obsidian vault (default: {_DEFAULT_VAULT})",
     )
     parser.add_argument(
-        "--db",
+        "--vault",
         action="store_true",
         help="Scan vault and populate the notes DB.",
     )
     parser.add_argument(
-        "--snapshot",
+        "--anki",
         action="store_true",
         help="Query Anki and populate the anki_notes snapshot (requires AnkiConnect).",
     )
     parser.add_argument(
-        "--output",
-        nargs="?",
-        const=_DEFAULT_OUTPUT,
-        metavar="FILE",
-        help=f"Write diff markdown table to FILE (default: {_DEFAULT_OUTPUT}).",
-    )
-    parser.add_argument(
         "--all",
         action="store_true",
-        help=f"Run --db + --snapshot + --output {_DEFAULT_OUTPUT}.",
+        help="Run --vault + --anki together.",
     )
     return parser
 
@@ -394,32 +288,20 @@ def main() -> None:
         parser.error(f"vault_path is not a directory: {vault_path}")
 
     # Resolve which stages to run
-    explicit = args.db or args.snapshot or (args.output is not None) or args.all
-    run_db       = args.db       or args.all or not explicit
-    run_snapshot = args.snapshot or args.all
-    run_output   = (args.output is not None) or args.all
-    output_path  = args.output if args.output is not None else _DEFAULT_OUTPUT
+    explicit  = args.vault or args.anki or args.all
+    run_vault = args.vault or args.all or not explicit
+    run_anki  = args.anki  or args.all
 
     print(f"Loaded note types from config: {list(globals.CONFIG_DATA.get('CUSTOM_REGEXPS', {}).keys())}")
     print(f"Vault: {vault_path}\n")
 
     db, _ = _init()
 
-    if run_db:
-        run_db_scan(vault_path, db)
+    if run_vault:
+        run_vault_scan(vault_path, db)
 
-    if run_snapshot:
-        run_anki_snapshot(db)
-
-    if run_output:
-        anki_count = db._conn.execute("SELECT COUNT(*) FROM anki_notes").fetchone()[0]
-        if not anki_count and not run_snapshot:
-            print(
-                "\n[output] No Anki snapshot found in DB."
-                " Run with --snapshot first, or use --all."
-            )
-        else:
-            run_diff_output(db, output_path, vault_path)
+    if run_anki:
+        scan_anki(db)
 
     db.close()
     print("\nDone.")
