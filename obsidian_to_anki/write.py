@@ -21,8 +21,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from urllib.error import URLError
+
+import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
@@ -74,6 +77,24 @@ def _init() -> NoteDB:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _resolve_model_fields(ac: AnkiConnect, manifest: dict) -> None:
+    """Query AnkiConnect for real field names and update globals.FIELDS_DICT."""
+    note_types: set[str] = set()
+    for key in ("add", "update", "restale"):
+        for entry in manifest.get(key, []):
+            nt = entry.get("note_type")
+            if nt:
+                note_types.add(nt)
+
+    for nt in note_types:
+        try:
+            fields = ac.invoke("modelFieldNames", modelName=nt)
+            if fields:
+                globals.FIELDS_DICT[nt] = fields
+        except Exception:
+            pass  # leave existing fallback in place
+
+
 def _field_map(note_type: str, field_1: str | None, field_2: str | None) -> dict:
     names = globals.FIELDS_DICT.get(note_type) or _KNOWN_FIELDS.get(note_type, ["Front", "Back"])
     result = {}
@@ -84,10 +105,77 @@ def _field_map(note_type: str, field_1: str | None, field_2: str | None) -> dict
     return result
 
 
+# ── Frontmatter helpers ────────────────────────────────────────────────────────
+
+_FM_RE = re.compile(r'^---\n(.*?)\n---\n', re.DOTALL)
+
+
+def _read_frontmatter_sync(file_path: str) -> dict[str, int]:
+    """Return anki_sync dict from YAML frontmatter, or {} if absent."""
+    try:
+        with open(file_path, encoding="utf-8") as fh:
+            content = fh.read()
+    except OSError:
+        return {}
+    m = _FM_RE.match(content)
+    if not m:
+        return {}
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError:
+        return {}
+    return {str(k): int(v) for k, v in fm.get("anki_sync", {}).items()}
+
+
+def _write_frontmatter_sync(file_path: str, sync_map: dict[str, int]) -> None:
+    """Upsert anki_sync into the file's YAML frontmatter (preserves other keys)."""
+    with open(file_path, encoding="utf-8") as fh:
+        content = fh.read()
+
+    m = _FM_RE.match(content)
+    if m:
+        try:
+            fm = yaml.safe_load(m.group(1)) or {}
+        except yaml.YAMLError:
+            fm = {}
+        body = content[m.end():]
+    else:
+        fm = {}
+        body = content
+
+    fm.setdefault("anki_sync", {})
+    fm["anki_sync"].update(sync_map)
+
+    fm_str = yaml.safe_dump(fm, default_flow_style=False, allow_unicode=True).rstrip()
+    new_content = f"---\n{fm_str}\n---\n{body}"
+
+    with open(file_path, "w", encoding="utf-8") as fh:
+        fh.write(new_content)
+
+
 # ── Execute ────────────────────────────────────────────────────────────────────
+
+def _ensure_decks(ac: AnkiConnect, manifest: dict) -> None:
+    """Create any decks referenced in the manifest that don't yet exist."""
+    decks: set[str] = set()
+    for key in ("add", "update", "restale"):
+        for entry in manifest.get(key, []):
+            d = entry.get("deck_name")
+            if d:
+                decks.add(d)
+    for deck in decks:
+        try:
+            ac.invoke("createDeck", deck=deck)
+        except Exception as exc:
+            print(f"[warn] createDeck {deck!r}: {exc}")
+
 
 def execute(manifest: dict, ac: AnkiConnect, db: NoteDB) -> dict:
     results = {"added": 0, "updated": 0, "re_added": 0, "deleted": 0, "errors": []}
+    _ensure_decks(ac, manifest)
+
+    # file_path → {uuid: anki_id} for frontmatter writes
+    fm_updates: dict[str, dict[str, int]] = {}
 
     # stale → treat as add after clearing anki_id in DB
     for entry in manifest.get("restale", []):
@@ -97,8 +185,8 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB) -> dict:
             db._conn.commit()
         manifest.setdefault("_restale_add", []).append(entry)
 
-    add_entries   = manifest.get("add", []) + manifest.get("_restale_add", [])
-    is_restale    = {id(e) for e in manifest.get("_restale_add", [])}
+    add_entries = manifest.get("add", []) + manifest.get("_restale_add", [])
+    is_restale  = {id(e) for e in manifest.get("_restale_add", [])}
 
     for entry in add_entries:
         note_type = entry.get("note_type", "")
@@ -115,6 +203,9 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB) -> dict:
             })
             if new_id and entry.get("uuid"):
                 db.mark_synced(entry["uuid"], new_id)
+                fp = entry.get("file_path")
+                if fp:
+                    fm_updates.setdefault(fp, {})[entry["uuid"]] = new_id
             if id(entry) in is_restale:
                 results["re_added"] += 1
             else:
@@ -131,17 +222,43 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB) -> dict:
         fields    = _field_map(note_type, entry.get("field_1"), entry.get("field_2"))
         try:
             ac.invoke("updateNoteFields", note={"id": anki_id, "fields": fields})
+            # Move to correct deck if it has changed
+            deck_name = entry.get("deck_name")
+            if deck_name:
+                note_info = ac.invoke("notesInfo", notes=[anki_id])
+                card_ids = note_info[0].get("cards", []) if note_info else []
+                if card_ids:
+                    ac.invoke("changeDeck", cards=card_ids, deck=deck_name)
             results["updated"] += 1
+            fp = entry.get("file_path")
+            uuid = entry.get("uuid")
+            if fp and uuid:
+                fm_updates.setdefault(fp, {})[uuid] = anki_id
         except Exception as exc:
             results["errors"].append(f"updateNoteFields (id={anki_id}): {exc}")
 
     orphan_ids = [e["anki_id"] for e in manifest.get("orphan", []) if e.get("anki_id")]
     if orphan_ids:
+        if results.get("_delete_orphans"):
+            try:
+                ac.invoke("deleteNotes", notes=orphan_ids)
+                results["deleted"] += len(orphan_ids)
+            except Exception as exc:
+                results["errors"].append(f"deleteNotes ({len(orphan_ids)} notes): {exc}")
+        else:
+            print(f"[warn] Skipped deletion of {len(orphan_ids)} orphan(s) — pass --delete-orphans to enable")
+
+    # Write anki_sync frontmatter to affected vault files
+    fm_errors = 0
+    for fp, sync_map in fm_updates.items():
         try:
-            ac.invoke("deleteNotes", notes=orphan_ids)
-            results["deleted"] += len(orphan_ids)
+            _write_frontmatter_sync(fp, sync_map)
         except Exception as exc:
-            results["errors"].append(f"deleteNotes ({len(orphan_ids)} notes): {exc}")
+            results["errors"].append(f"frontmatter ({fp}): {exc}")
+            fm_errors += 1
+    if fm_updates:
+        written = len(fm_updates) - fm_errors
+        print(f"[fm] Wrote anki_sync frontmatter to {written}/{len(fm_updates)} files")
 
     return results
 
@@ -168,6 +285,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--execute",
         action="store_true",
         help="Actually write changes to Anki.",
+    )
+    parser.add_argument(
+        "--delete-orphans",
+        action="store_true",
+        dest="delete_orphans",
+        help="Also delete orphaned Anki notes listed in the manifest. Requires --execute.",
     )
     return parser
 
@@ -204,6 +327,9 @@ def main() -> None:
         print("\nNothing to do.")
         return
 
+    if orphan_count and not args.delete_orphans:
+        print(f"\n[warn] Manifest has {orphan_count} orphan(s). Pass --delete-orphans to delete them.")
+
     print("\nConnecting to Anki…")
     try:
         ac = AnkiConnect()
@@ -214,6 +340,8 @@ def main() -> None:
         sys.exit(1)
 
     db = _init()
+    _resolve_model_fields(ac, manifest)
+    manifest["_delete_orphans"] = args.delete_orphans
     results = execute(manifest, ac, db)
     db.close()
 

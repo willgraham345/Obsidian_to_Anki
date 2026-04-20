@@ -29,6 +29,8 @@ import re
 import sys
 from urllib.error import URLError
 
+import yaml
+
 # ── Make src importable ────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
@@ -128,6 +130,28 @@ def _gen_regexp() -> None:
     )
 
 
+# ── Frontmatter helper ────────────────────────────────────────────────────────
+
+_FM_RE = re.compile(r'^---\n(.*?)\n---\n', re.DOTALL)
+
+
+def _read_frontmatter_sync(file_path: str) -> dict[str, int]:
+    """Return anki_sync dict from YAML frontmatter, or {} if absent."""
+    try:
+        with open(file_path, encoding="utf-8") as fh:
+            content = fh.read()
+    except OSError:
+        return {}
+    m = _FM_RE.match(content)
+    if not m:
+        return {}
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError:
+        return {}
+    return {str(k): int(v) for k, v in fm.get("anki_sync", {}).items()}
+
+
 # ── Stage 1: vault scan ────────────────────────────────────────────────────────
 
 def run_vault_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
@@ -151,6 +175,13 @@ def run_vault_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
             except Exception as exc:
                 print(f"  [WARN] {os.path.relpath(filepath, vault_path)}: {exc}")
                 continue
+
+            # Reconcile frontmatter → DB: restore anki_ids lost if DB was wiped
+            fm_sync = _read_frontmatter_sync(filepath)
+            if fm_sync:
+                for note_row in db.get_notes_for_file(filepath):
+                    if not note_row["anki_id"] and note_row["id"] in fm_sync:
+                        db.mark_synced(note_row["id"], fm_sync[note_row["id"]])
 
             count = len(rf.notes_to_add) + len(rf.notes_to_edit)
             if count:

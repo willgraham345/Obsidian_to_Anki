@@ -8,7 +8,6 @@ Usage (from obsidian_to_anki/):
                           [--output-json FILE] [--output-md FILE]
 
     vault_path      Path to Obsidian vault — used for relative paths in markdown.
-    --clean-up      Include orphaned Anki notes in the diff.
     --output-json   JSON manifest consumed by write.py (default: anki_diff.json).
     --output-md     Human-readable markdown preview (default: anki_diff.md).
 
@@ -83,9 +82,34 @@ def _lookup_uuid(db: NoteDB, row: dict) -> str | None:
 
 # ── Core: build diff buckets ───────────────────────────────────────────────────
 
-def build_diff(db: NoteDB, include_orphans: bool) -> dict:
-    """Read note_comparison, return structured diff dict."""
+def _deck_from_path(file_path: str | None, vault_path: str) -> str:
+    """Derive Anki deck from the file's folder hierarchy relative to vault root.
+
+    e.g. <vault>/Docs/Python/notes.md  →  Docs::Python
+         <vault>/Python/notes.md        →  Python
+         <vault>/notes.md               →  Default
+    """
+    if not file_path:
+        return globals.CONFIG_DATA.get("Deck", "Default")
+    try:
+        rel = os.path.relpath(file_path, vault_path)
+    except ValueError:
+        return globals.CONFIG_DATA.get("Deck", "Default")
+    parts = rel.replace("\\", "/").split("/")[:-1]  # drop filename
+    parts = [p for p in parts if p and p != "."]
+    if not parts:
+        return globals.CONFIG_DATA.get("Deck", "Default")
+    return "::".join(parts)
+
+
+def build_diff(db: NoteDB, vault_path: str) -> dict:
+    """Read note_comparison, return structured diff dict.
+
+    Orphans are always included but filtered to note types managed by this
+    tool (i.e. types present in the [Custom Regexps] config section).
+    """
     rows = db.get_comparison_rows(exclude_synced=True)
+    managed_types: set[str] = set(globals.CONFIG_DATA.get("CUSTOM_REGEXPS", {}).keys())
 
     diff: dict[str, list[dict]] = {
         "add": [],
@@ -99,14 +123,15 @@ def build_diff(db: NoteDB, include_orphans: bool) -> dict:
 
         if status in ("not_in_anki", "stale_id"):
             uuid = _lookup_uuid(db, r)
+            fp = r.get("file_path")
             entry = {
                 "uuid":      uuid,
                 "note_type": r.get("note_type") or "",
-                "deck_name": r.get("vault_deck") or globals.CONFIG_DATA.get("Deck", "Default"),
+                "deck_name": _deck_from_path(fp, vault_path),
                 "field_1":   r.get("vault_field_1"),
                 "field_2":   r.get("vault_field_2"),
                 "tags":      _parse_tags(r.get("vault_tags")),
-                "file_path": r.get("file_path"),
+                "file_path": fp,
             }
             if status == "stale_id":
                 diff["restale"].append(entry)
@@ -115,19 +140,24 @@ def build_diff(db: NoteDB, include_orphans: bool) -> dict:
 
         elif status == "modified":
             uuid = _lookup_uuid(db, r)
+            fp = r.get("file_path")
             diff["update"].append({
                 "uuid":      uuid,
                 "anki_id":   r.get("anki_id"),
                 "note_type": r.get("note_type") or "",
+                "deck_name": _deck_from_path(fp, vault_path),
                 "field_1":   r.get("vault_field_1"),
                 "field_2":   r.get("vault_field_2"),
-                "file_path": r.get("file_path"),
+                "file_path": fp,
             })
 
-        elif status == "orphan_in_anki" and include_orphans:
+        elif status == "orphan_in_anki":
+            note_type = r.get("note_type") or ""
+            if managed_types and note_type not in managed_types:
+                continue  # not managed by this tool — skip
             diff["orphan"].append({
                 "anki_id":   r.get("anki_id"),
-                "note_type": r.get("note_type") or "",
+                "note_type": note_type,
                 "field_1":   r.get("anki_field_1"),
                 "field_2":   r.get("anki_field_2"),
                 "deck_name": r.get("anki_deck") or "",
@@ -283,12 +313,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Path to Obsidian vault for relative paths in markdown (default: {_DEFAULT_VAULT})",
     )
     parser.add_argument(
-        "--clean-up",
-        action="store_true",
-        dest="clean_up",
-        help="Include orphaned Anki notes in the diff.",
-    )
-    parser.add_argument(
         "--output-json",
         default=_DEFAULT_JSON,
         metavar="FILE",
@@ -322,7 +346,7 @@ def main() -> None:
         db.close()
         sys.exit(1)
 
-    diff = build_diff(db, include_orphans=args.clean_up)
+    diff = build_diff(db, vault_path)
     db.close()
 
     total = sum(len(v) for v in diff.values())

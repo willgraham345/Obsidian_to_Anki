@@ -39,7 +39,7 @@ def _db_upsert_note(parsed, file_path: str, line_number: int) -> str:
     note_uuid = existing["id"] if existing else str(uuid_module.uuid4())
     db.upsert_note(
         uuid=note_uuid,
-        anki_id=parsed.id,
+        anki_id=parsed.id if parsed.id is not None else (existing["anki_id"] if existing else None),
         file_path=file_path,
         line_number=line_number,
         note_type=parsed.note["modelName"],
