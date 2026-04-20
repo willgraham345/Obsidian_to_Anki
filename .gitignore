@@ -6,3 +6,6 @@ pytestcache_/*
 pytest_cache/*
 obsidian_to_anki/src/obsidian_to_anki/__pycache__
 obsidian_to_anki/tests/__pycache__
+/obsidian_to_anki/obsidian_to_anki_log.log
+/obsidian_to_anki/anki_diff.json
+/obsidian_to_anki/anki_diff.md

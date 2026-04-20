@@ -67,12 +67,12 @@ class AnkiConnect:
                            is missing required fields ('error' or 'result'),
                            or if the 'error' afindNotesicates an AnkiConnect error.
         """
-        if len(response) != 2:
-            raise Exception('response has an unexpected number of fields')
         if 'error' not in response:
             raise Exception('response is missing required error field')
         if 'result' not in response:
             raise Exception('response is missing required result field')
+        if len(response) != 2:
+            raise Exception('response has an unexpected number of fields')
         if response['error'] is not None:
             raise Exception(response['error'])
         return response['result']

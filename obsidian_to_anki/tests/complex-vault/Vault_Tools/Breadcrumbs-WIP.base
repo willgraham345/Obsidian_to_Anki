@@ -1,0 +1,10 @@
+filters:
+  and:
+    - file.links.contains("file.link")
+views:
+  - type: table
+    name: All
+    order:
+      - file.name
+  - type: table
+    name: Up

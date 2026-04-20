@@ -24,10 +24,57 @@ package "Orchestration" {
   }
 
   class Data {
+    + DATA_PATH: str
     + create_data_file()
     + load_data_file()
     + update_data_file(data)
   }
+}
+
+package "Persistence" {
+  class NoteDB {
+    + db_path: str
+    + upsert_note(uuid, anki_id, file_path,\n  line_number, note_type,\n  field_1, field_2,\n  image_paths, tags, deck_name)
+    + get_note(uuid): dict
+    + get_note_by_location(file_path,\n  line_number, note_type): dict
+    + delete_note(uuid)
+    + get_notes_for_file(file_path): list
+    + mark_synced(uuid, anki_id)
+    + get_file_hash(file_path): str
+    + set_file_hash(file_path, sha256)
+    + get_all_file_hashes(): dict
+    + add_media(filename)
+    + get_added_media(): list
+    + upsert_anki_note(anki_id, note_type,\n  field_1, field_2, tags,\n  deck_name, mod_timestamp)
+    + clear_anki_notes()
+    + get_comparison_summary(): list[dict]
+    + get_comparison_rows(exclude_synced): list[dict]
+    + close()
+  }
+
+  note right of NoteDB
+    SQLite tables:
+    • notes (UUID PK, anki_id,
+      file_path, line_number,
+      note_type, field_1, field_2,
+      image_paths, tags, deck_name,
+      created_at, updated_at)
+    • file_hashes (file_path PK,
+      sha256, updated_at)
+    • added_media (filename PK)
+    • anki_notes (anki_id PK,
+      note_type, field_1, field_2,
+      tags, deck_name,
+      mod_timestamp, synced_at)
+
+    SQL VIEW:
+    • note_comparison — LEFT JOIN +
+      UNION of notes ↔ anki_notes
+      on anki_id; status column:
+      not_in_anki | stale_id |
+      modified | synced |
+      orphan_in_anki
+  end note
 }
 
 package "AnkiConnect" {
@@ -53,9 +100,17 @@ package "File Processing" {
     + notes_to_add: list
     + notes_to_edit: list
     + notes_to_delete: list
+    + uuid_for_add: list
+    + uuid_for_inline_add: list
     + _setup_scan()
     + scan_file()
+    + _handle_block_note(match)
+    + _handle_inline_note(match)
+    + _apply_change_detection(parsed,\n  file_path, line_no): Note_and_id
+    + _line_of(char_pos): int
+    + _vault_rel_path(): str
     + write_ids()
+    + update_db_anki_ids()
     + write_file()
     + remove_empties()
     + get_add_notes(): dict
@@ -127,6 +182,17 @@ class FormatConverter <<static>> {
   + format_note_with_frozen_fields(note, frozen)
 }
 
+class scan_vault <<script>> {
+  + run_db_scan(vault_path, db): tuple
+  + run_anki_snapshot(db): int
+  + run_diff_output(db, output_path, vault_path)
+  + main()
+  --
+  CLI flags:
+  vault_path (positional)
+  --db  --snapshot  --output  --all
+}
+
 class globals <<module>> {
   + CONFIG_DATA: dict
   + FIELDS_DICT: dict
@@ -135,6 +201,7 @@ class globals <<module>> {
   + MEDIA: dict
   + ADDED_MEDIA: list
   + FILE_HASHES: dict
+  + NOTE_DB: NoteDB
   + NOTE_REGEXP: Pattern
   + INLINE_REGEXP: Pattern
   + EMPTY_REGEXP: Pattern
@@ -152,6 +219,11 @@ App "1" --> "1" Config : uses
 App "1" --> "1" Data : uses
 App "1" --> "1..*" Directory : creates
 App "1" --> "1" AnkiConnect : uses
+App "1" --> "1" NoteDB : creates\n(sets globals.NOTE_DB)
+
+' Persistence relationships
+Data "1" --> "1" NoteDB : primary store\n(JSON is backup)
+File ..> NoteDB : upsert/query via\nglobals.NOTE_DB
 
 ' File processing relationships
 Directory "1" --> "1..*" File : creates/manages
@@ -174,6 +246,13 @@ RegexNote ..> FormatConverter : calls format()
 ' Config and AnkiConnect
 Config ..> AnkiConnect : invoke() on update
 
+' scan_vault relationships
+scan_vault ..> Config    : load_config()
+scan_vault ..> NoteDB    : create / query / upsert
+scan_vault ..> File      : scan_file()
+scan_vault ..> AnkiConnect : invoke findNotes /\n  notesInfo / cardsInfo
+scan_vault ..> globals   : writes FIELDS_DICT\nEXISTING_IDS FILE_HASHES
+
 ' Global state reads/writes
 Config ..> globals : writes CONFIG_DATA
 Data ..> globals : writes FILE_HASHES\nADDED_MEDIA
@@ -181,6 +260,6 @@ FormatConverter ..> globals : reads md_parser\nwrites MEDIA
 Note ..> globals : reads FIELDS_DICT\nNOTE_DICT_TEMPLATE
 Directory ..> globals : reads FILE_HASHES
 RegexFile ..> globals : reads OBS_*_REGEXP
-App ..> globals : writes FIELDS_DICT\nEXISTING_IDS
+App ..> globals : writes FIELDS_DICT\nEXISTING_IDS\nNOTE_DB
 
 @enduml

@@ -1,0 +1,56 @@
+{
+  "command_timeout": 5,
+  "templates_folder": "zz_Templates",
+  "templates_pairs": [
+    [
+      "",
+      ""
+    ]
+  ],
+  "trigger_on_file_creation": true,
+  "auto_jump_to_cursor": true,
+  "enable_system_commands": false,
+  "shell_path": "",
+  "user_scripts_folder": "",
+  "enable_folder_templates": true,
+  "folder_templates": [
+    {
+      "folder": "Docs",
+      "template": "zz_Templates/template_classes/base_note_template.md"
+    },
+    {
+      "folder": "People",
+      "template": "zz_Templates/Template People.md"
+    },
+    {
+      "folder": "Docs_Research_Industry/Topics",
+      "template": "zz_Templates/template_classes/base_note_template.md"
+    },
+    {
+      "folder": "TagPages",
+      "template": "zz_Templates/template_classes/tag_page.md"
+    },
+    {
+      "folder": "ProjDocs",
+      "template": "zz_Templates/template_classes/base_note_template.md"
+    }
+  ],
+  "enable_file_templates": false,
+  "file_templates": [
+    {
+      "regex": ".*",
+      "template": ""
+    }
+  ],
+  "syntax_highlighting": true,
+  "syntax_highlighting_mobile": true,
+  "enabled_templates_hotkeys": [
+    "zz_Templates/apply_properties/heading_apply.md",
+    "zz_Templates/apply_properties/base_apply.md",
+    "zz_Templates/apply_properties/property_add_apply.md",
+    "zz_Templates/template_classes/process_template.md"
+  ],
+  "startup_templates": [],
+  "intellisense_render": 1,
+  "enable_ribbon_icon": true
+}

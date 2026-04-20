@@ -4,7 +4,7 @@ import os
 import re
 
 from src.obsidian_to_anki.directory import Directory
-from src.obsidian_to_anki.file import File, RegexFile
+from src.obsidian_to_anki.file import File
 from src.obsidian_to_anki.anki_connect import AnkiConnect
 from src.obsidian_to_anki import globals
 
@@ -20,8 +20,7 @@ class TestDirectory:
     @patch('src.obsidian_to_anki.directory.os.path.isdir', return_value=True)
     @patch('src.obsidian_to_anki.directory.os.scandir')
     @patch('src.obsidian_to_anki.directory.File')
-    @patch('src.obsidian_to_anki.directory.RegexFile')
-    def test_init_directory_scan(self, MockRegexFile, MockFile, mock_scandir, mock_isdir, mock_chdir, mock_getcwd):
+    def test_init_directory_scan(self, MockFile, mock_scandir, mock_isdir, mock_chdir, mock_getcwd):
         # All files included; directories filtered out
         mock_entry1 = MagicMock(is_file=lambda: True, path="/mock/dir/file1.md")
         mock_entry2 = MagicMock(is_file=lambda: True, path="/mock/dir/file2.txt")
@@ -49,7 +48,6 @@ class TestDirectory:
             call("/mock/dir/file2.txt"),
             call("/mock/dir/image.png"),
         ])
-        MockRegexFile.assert_not_called()
 
     @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
     @patch('src.obsidian_to_anki.directory.os.chdir')
@@ -88,8 +86,11 @@ class TestDirectory:
         assert len(directory.files) == 0 # Should be skipped
         mock_file.scan_file.assert_not_called()
 
+    @patch('src.obsidian_to_anki.directory.os.chdir')
+    @patch('src.obsidian_to_anki.directory.os.scandir')
     @patch('src.obsidian_to_anki.directory.AnkiConnect.request')
-    def test_requests_1(self, mock_anki_request):
+    def test_requests_1(self, mock_anki_request, mock_scandir, mock_chdir):
+        mock_scandir.return_value.__enter__.return_value = []
         mock_file1 = MagicMock()
         mock_file1.get_add_notes.return_value = "add_notes_req1"
         mock_file1.get_note_info.return_value = "note_info_req1"
@@ -116,9 +117,12 @@ class TestDirectory:
         ], any_order=True)
         assert result == mock_anki_request.return_value
 
+    @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
     @patch('src.obsidian_to_anki.directory.os.chdir')
+    @patch('src.obsidian_to_anki.directory.os.scandir')
     @patch('src.obsidian_to_anki.directory.AnkiConnect.parse')
-    def test_parse_requests_1(self, mock_anki_parse, mock_chdir):
+    def test_parse_requests_1(self, mock_anki_parse, mock_scandir, mock_chdir, mock_getcwd):
+        mock_scandir.return_value.__enter__.return_value = []
         mock_file1 = MagicMock()
         mock_file2 = MagicMock()
         directory = Directory("/mock/dir")
@@ -126,10 +130,14 @@ class TestDirectory:
 
         # Mock responses from AnkiConnect.parse
         mock_anki_parse.side_effect = [
-            ["note_ids_response1", "note_ids_response2"], # For notes_ids
-            ["card_ids_response1", "card_ids_response2"], # For cards_ids
-            "parsed_note_id1", # For file1.note_ids
-            "parsed_note_id2", # For file2.note_ids
+            ["note_ids_response1", "note_ids_response2"],  # parse(response[0]) → notes_ids
+            ["card_ids_response1", "card_ids_response2"],  # parse(response[1]) → cards_ids
+            ["inner_note1"],                                # parse("note_ids_response1") → iterable for file1
+            "parsed_note_id1",                             # parse("inner_note1") → file1 note id
+            ["inner_note2"],                               # parse("note_ids_response2") → iterable for file2
+            "parsed_note_id2",                             # parse("inner_note2") → file2 note id
+            "card_ids_response1",                          # parse("card_ids_response1") → file1.card_ids
+            "card_ids_response2",                          # parse("card_ids_response2") → file2.card_ids
         ]
 
         requests_1_response = [
@@ -146,7 +154,11 @@ class TestDirectory:
             call("raw_notes_ids_response"),
             call("raw_cards_ids_response"),
             call("note_ids_response1"),
+            call("inner_note1"),
             call("note_ids_response2"),
+            call("inner_note2"),
+            call("card_ids_response1"),
+            call("card_ids_response2"),
         ])
 
         assert mock_file1.note_ids == ["parsed_note_id1"]
@@ -168,8 +180,12 @@ class TestDirectory:
 
         mock_chdir.assert_has_calls([call("/mock/dir"), call("/mock/parent")])
 
+    @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
+    @patch('src.obsidian_to_anki.directory.os.chdir')
+    @patch('src.obsidian_to_anki.directory.os.scandir')
     @patch('src.obsidian_to_anki.directory.AnkiConnect.request')
-    def test_requests_2(self, mock_anki_request):
+    def test_requests_2(self, mock_anki_request, mock_scandir, mock_chdir, mock_getcwd):
+        mock_scandir.return_value.__enter__.return_value = []
         mock_file1 = MagicMock()
         mock_file1.get_change_decks.return_value = "change_decks_req1"
         mock_file1.get_clear_tags.return_value = "clear_tags_req1"
@@ -193,7 +209,11 @@ class TestDirectory:
         ], any_order=True)
         assert result == mock_anki_request.return_value
 
-    def test_hashes(self):
+    @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
+    @patch('src.obsidian_to_anki.directory.os.chdir')
+    @patch('src.obsidian_to_anki.directory.os.scandir')
+    def test_hashes(self, mock_scandir, mock_chdir, mock_getcwd):
+        mock_scandir.return_value.__enter__.return_value = []
         mock_file1 = MagicMock(filename="file1.md", hash="hash1")
         mock_file2 = MagicMock(filename="file2.txt", hash="hash2")
 

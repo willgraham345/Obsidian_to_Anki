@@ -1,0 +1,10 @@
+filters:
+  or:
+    - file.tags.contains("TODO")
+    - file.tags.contains("todo")
+views:
+  - type: table
+    name: Table
+    groupBy:
+      property: file.tags
+      direction: ASC

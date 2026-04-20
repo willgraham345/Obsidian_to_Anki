@@ -1,0 +1,4 @@
+/* Dataview column wrapping and coloring */
+ .table-view-table>tbody>tr>td { 
+    white-space: pre-wrap !important;
+}

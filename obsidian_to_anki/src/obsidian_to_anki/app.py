@@ -8,6 +8,7 @@ import argparse
 from . import globals
 from .config import Config
 from .data import Data
+from .db import NoteDB
 from .directory import Directory
 from .anki_connect import AnkiConnect
 
@@ -32,6 +33,7 @@ class App:
     def __init__(self, config):
         """Execute the main functionality of the script."""
         self.config = config
+        globals.NOTE_DB = NoteDB()
         self.data = Data()
         try:
             self.config.load_config()
@@ -83,19 +85,13 @@ class App:
                 if args.recurse:
                     directories = list()
                     for root, dirs, files in os.walk(os.getcwd()):
-                        directories.append(
-                            Directory(root, regex=args.regex)
-                        )
+                        directories.append(Directory(root))
                         for dir in dirs:
                             if dir.startswith("."):
                                 dirs.remove(dir)
                                 # So, ignore . folders
                 else:
-                    directories = [
-                        Directory(
-                            os.getcwd(), regex=args.regex
-                        )
-                    ]
+                    directories = [Directory(os.getcwd())]
                 os.chdir(current)
             else:
                 # Still need to get to directory of file for image resolving
@@ -106,11 +102,7 @@ class App:
                     file_dir = os.path.dirname(self.path)
                 else:
                     file_dir = current
-                directories = [
-                    Directory(
-                        file_dir, regex=args.regex, onefile=self.path
-                    )
-                ]
+                directories = [Directory(file_dir, onefile=self.path)]
             requests = list()
             print("Getting tag list")
             requests.append(
@@ -170,13 +162,6 @@ class App:
             action="store_true",
             dest="update",
             help="Update config file."
-        )
-        self.parser.add_argument(
-            "-r", "--regex",
-            action="store_true",
-            dest="regex",
-            help="Use custom regex syntax.",
-            default=globals.CONFIG_DATA["Regex"]
         )
         self.parser.add_argument(
             "-m", "--mediaupdate",
@@ -247,7 +232,7 @@ class App:
                 [
                     r"^",
                     globals.CONFIG_DATA["NOTE_PREFIX"],
-                    r"\n([\s\S]*?\n)",
+                    r".*?\n([\s\S]*?\n)",
                     globals.CONFIG_DATA["NOTE_SUFFIX"],
                     r"\n?"
                 ]

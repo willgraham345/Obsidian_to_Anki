@@ -4,58 +4,62 @@ import os
 import re
 import hashlib
 
-from src.obsidian_to_anki.file import File, RegexFile
+from src.obsidian_to_anki.file import File
 from src.obsidian_to_anki.note import Note, InlineNote, RegexNote
 from src.obsidian_to_anki.anki_connect import AnkiConnect
 from src.obsidian_to_anki import globals
 from src.obsidian_to_anki.utils import string_insert, write_safe, findignore, spans
 
+
 class TestFile:
 
     @pytest.fixture(autouse=True)
     def setup(self):
-        # Reset globals before each test to ensure isolation
         globals.CONFIG_DATA = {
             "Vault": "",
-            "NOTE_PREFIX": "## ",
-            "NOTE_SUFFIX": "## ",
+            "NOTE_PREFIX": re.escape("## "),
+            "NOTE_SUFFIX": re.escape("## "),
             "DECK_LINE": "Deck",
             "TAG_LINE": "Tags",
-            "INLINE_PREFIX": "{{",
-            "INLINE_SUFFIX": "}}",
+            "INLINE_PREFIX": re.escape("{{"),
+            "INLINE_SUFFIX": re.escape("}}"),
             "FROZEN_LINE": "Frozen",
             "Comment": False,
             "CUSTOM_REGEXPS": {}
         }
         globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
-        globals.NOTE_REGEXP = re.compile(r"## (.*?)\n(.*?)\n## ", re.DOTALL)
+        globals.NOTE_REGEXP = re.compile(r"## (.+?)\n(.*?)\n## ", re.DOTALL)
         globals.INLINE_REGEXP = re.compile(r"\{\{(.*?)\}\}")
-        globals.EMPTY_REGEXP = re.compile(r"<!--id:(\d+)-->")
+        globals.EMPTY_REGEXP = re.compile(r"^## \n(?:<!--)?ID: (\d+)[\s\S]*?\n## ", re.MULTILINE)
+        globals.DECK_REGEXP = re.compile(r"^Deck(?:\n|: )(.*)", re.MULTILINE)
+        globals.TAG_REGEXP = re.compile(r"^Tags(?:\n|: )(.*)", re.MULTILINE)
+        globals.FROZEN_REGEXP = re.compile(r"Frozen - (.*?):\n((?:[^\n][\n]?)+)")
+        globals.OBS_INLINE_MATH_REGEXP = re.compile(r"(?<!\$)\$(?!\$)(.*?)(?<!\$)\$(?!\$)", re.DOTALL)
+        globals.OBS_DISPLAY_MATH_REGEXP = re.compile(r"\$\$(.*?)\$\$", re.DOTALL)
+        globals.OBS_CODE_REGEXP = re.compile(r"(?<!`)`(?!`)(.*?)(?<!`)`(?!`)", re.DOTALL)
+        globals.OBS_DISPLAY_CODE_REGEXP = re.compile(r"```[\s\S]*?```")
         globals.EXISTING_IDS = []
         globals.FIELDS_DICT = {}
         globals.NOTE_DICT_TEMPLATE = {"tags": [], "deckName": "Default"}
-        globals.ID_PREFIX = "<!--id:"
+        globals.ID_PREFIX = "ID: "
         globals.TAG_SEP = " "
+        globals.NOTE_DB = None  # disable DB in file tests
+        with patch('builtins.open', mock_open(read_data="")):
+            yield
 
     @patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/path/to/file.md")
-    @patch('src.obsidian_to_anki.file.os.path.realpath', return_value="/mock/path/to/file.md")
-    @patch('src.obsidian_to_anki.file.os.path.dirname', return_value="/mock/path/to")
-    @patch('builtins.open', new_callable=mock_open, read_data="file content")
-    def test_file_init_no_vault(self, mock_open, mock_dirname, mock_realpath, mock_abspath):
+    def test_file_init_no_vault(self, mock_abspath):
         file_instance = File("file.md")
         assert file_instance.filename == "file.md"
         assert file_instance.path == "/mock/path/to/file.md"
         assert file_instance.url == ""
-        assert file_instance.file == "file content"
-        assert file_instance.original_file == "file content"
-        mock_open.assert_called_once_with("file.md", encoding='utf_8')
+        assert file_instance.file == ""
+        assert file_instance.original_file == ""
 
     @patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/path/to/VaultName/sub/file.md")
-    @patch('src.obsidian_to_anki.file.os.path.realpath', return_value="/mock/path/to/VaultName/sub/file.md")
-    @patch('src.obsidian_to_anki.file.os.path.dirname', return_value="/mock/path/to/VaultName/sub")
-    @patch('builtins.open', new_callable=mock_open, read_data="file content")
-    def test_file_init_with_vault(self, mock_open, mock_dirname, mock_realpath, mock_abspath):
+    def test_file_init_with_vault(self, mock_abspath):
         globals.CONFIG_DATA["Vault"] = "VaultName"
+        globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
         file_instance = File("file.md")
         assert file_instance.url == "obsidian://vault/sub/file.md"
 
@@ -105,12 +109,12 @@ class TestFile:
     @patch('src.obsidian_to_anki.file.Note')
     @patch('src.obsidian_to_anki.file.InlineNote')
     def test_scan_file(self, MockInlineNote, MockNote, mock_setup_global_tags, mock_setup_target_deck, mock_setup_frozen_fields_dict):
-        file_content = """
-## Note to Add\ncontent\n## 
-{{Inline Note to Add}}
-## Note to Edit\ncontent\n<!--id:12345-->\n## 
-<!--id:67890-->
-"""
+        file_content = (
+            "\n## Note to Add\ncontent\n## \n"
+            "{{Inline Note to Add}}\n"
+            "## Note to Edit\ncontent\n## \n"
+            "## \nID: 67890\n## \n"
+        )
         file_instance = File("dummy.md")
         file_instance.file = file_content
         file_instance.url = "mock_url"
@@ -125,6 +129,8 @@ class TestFile:
         MockNote.return_value.parse.side_effect = [mock_note_to_add, mock_note_to_edit]
         MockInlineNote.return_value.parse.return_value = mock_inline_note_to_add
 
+        file_instance.target_deck = "Default"
+        file_instance.global_tags = ""
         file_instance.scan_file()
 
         assert len(file_instance.notes_to_add) == 1
@@ -136,35 +142,179 @@ class TestFile:
         assert file_instance.notes_to_edit[0] == mock_note_to_edit
         assert file_instance.notes_to_delete[0] == 67890
 
-    def test_id_to_str(self):
-        assert File.id_to_str(123) == "<!--id:123-->\n"
-        assert File.id_to_str(123, comment=True) == "<!--id:123-->\n"
-        assert File.id_to_str(123, inline=True) == "<!--id:123--> "
-        assert File.id_to_str(123, inline=True, comment=True) == "<!--id:123--> "
-
+    @patch('src.obsidian_to_anki.file.File.fix_newline_ids')
     @patch('src.obsidian_to_anki.file.string_insert')
-    def test_write_ids(self, mock_string_insert):
+    def test_write_ids(self, mock_string_insert, mock_fix_newline_ids):
         file_instance = File("dummy.md")
         file_instance.file = "original content\n## Note\ncontent\n## \n{{Inline Note}}"
+        original_file = file_instance.file
         file_instance.note_ids = [101, 102]
         file_instance.notes_to_add = ["note1"]
         file_instance.inline_notes_to_add = ["inline_note1"]
         file_instance.id_indexes = [25]
+        file_instance.regex_id_indexes = []
         file_instance.inline_id_indexes = [45]
 
         file_instance.write_ids()
 
         expected_inserts = [
-            (25, "<!--id:101-->\n"),
-            (45, "<!--id:102--> ")
+            (25, "ID: 101\n"),
+            (45, "ID: 102 ")
         ]
-        mock_string_insert.assert_called_once_with(file_instance.file, expected_inserts)
+        mock_string_insert.assert_called_once_with(original_file, expected_inserts)
+        mock_fix_newline_ids.assert_called_once()
+
+    @patch('src.obsidian_to_anki.file.File.fix_newline_ids')
+    @patch('src.obsidian_to_anki.file.string_insert')
+    def test_write_ids_with_regex(self, mock_string_insert, mock_fix_newline_ids):
+        """Regex note IDs get \\n prefix; fix_newline_ids cleans doubles."""
+        file_instance = File("dummy.md")
+        file_instance.file = "original content"
+        original_file = file_instance.file
+        file_instance.note_ids = [101, 201]
+        file_instance.notes_to_add = ["block_note", "regex_note"]
+        file_instance.inline_notes_to_add = []
+        file_instance.id_indexes = [10]
+        file_instance.regex_id_indexes = [20]
+        file_instance.inline_id_indexes = []
+
+        file_instance.write_ids()
+
+        expected_inserts = [
+            (10, "ID: 101\n"),
+            (20, "\nID: 201\n"),
+        ]
+        mock_string_insert.assert_called_once_with(original_file, expected_inserts)
+        mock_fix_newline_ids.assert_called_once()
+
+    def test_fix_newline_ids(self):
+        file_instance = File("dummy.md")
+        file_instance.file = "Line1\n\nID: 123\nLine2\r\n\r\nID: 456\r\nLine3"
+        file_instance.fix_newline_ids()
+        assert file_instance.file == "Line1\nID: 123\nLine2\r\nID: 456\r\nLine3"
+
+    def test_strip_stale_ids_removes_stale(self):
+        file_instance = File("dummy.md")
+        file_instance.file = "Some note\nID: 999\nMore content"
+        globals.EXISTING_IDS = [111]  # 999 not present → stale
+        file_instance._strip_stale_ids()
+        assert "ID: 999" not in file_instance.file
+
+    def test_strip_stale_ids_keeps_valid(self):
+        file_instance = File("dummy.md")
+        file_instance.file = "Some note\nID: 111\nMore content"
+        globals.EXISTING_IDS = [111]
+        file_instance._strip_stale_ids()
+        assert "ID: 111" in file_instance.file
+
+    def test_strip_stale_ids_skips_when_no_existing(self):
+        file_instance = File("dummy.md")
+        original = "Some note\nID: 999\nMore content"
+        file_instance.file = original
+        globals.EXISTING_IDS = []  # empty → skip stripping entirely
+        file_instance._strip_stale_ids()
+        assert file_instance.file == original
+
+    @patch('src.obsidian_to_anki.file.spans')
+    def test_add_spans_to_ignore(self, mock_spans):
+        file_instance = File("dummy.md")
+        file_instance.file = "some content"
+        file_instance.ignore_spans = []
+
+        mock_spans.side_effect = [[(0, 10)], [(11, 20)], [(21, 30)], [(31, 40)]]
+
+        file_instance.add_spans_to_ignore()
+
+        assert len(file_instance.ignore_spans) == 4
+        mock_spans.assert_has_calls([
+            call(globals.OBS_INLINE_MATH_REGEXP, file_instance.file),
+            call(globals.OBS_DISPLAY_MATH_REGEXP, file_instance.file),
+            call(globals.OBS_CODE_REGEXP, file_instance.file),
+            call(globals.OBS_DISPLAY_CODE_REGEXP, file_instance.file),
+        ])
+
+    @patch('src.obsidian_to_anki.file.File.setup_frozen_fields_dict')
+    @patch('src.obsidian_to_anki.file.File.setup_target_deck')
+    @patch('src.obsidian_to_anki.file.File.setup_global_tags')
+    @patch('src.obsidian_to_anki.file.File.add_spans_to_ignore')
+    @patch('src.obsidian_to_anki.file.File.search')
+    def test_scan_file_calls_search_for_custom_regexps(self, mock_search, mock_add_spans, *_):
+        globals.CONFIG_DATA["CUSTOM_REGEXPS"] = {"MyNoteType": "MY_REGEX"}
+        file_content = "## \nID: 12345\n## "
+        file_instance = File("dummy.md")
+        file_instance.file = file_content
+        globals.EXISTING_IDS = [12345]
+
+        file_instance.scan_file()
+
+        mock_add_spans.assert_called_once()
+        mock_search.assert_called_once_with("MyNoteType", "MY_REGEX")
+        assert file_instance.notes_to_delete == [12345]
+
+    @patch('src.obsidian_to_anki.file.findignore')
+    @patch('src.obsidian_to_anki.file.RegexNote')
+    def test_search(self, MockRegexNote, mock_findignore):
+        file_instance = File("dummy.md")
+        file_instance.file = "test content"
+        file_instance.ignore_spans = []
+        file_instance.url = "mock_url"
+        file_instance.frozen_fields_dict = {}
+        file_instance.target_deck = "Default"
+        file_instance.global_tags = ""
+        file_instance.notes_to_edit = []
+        file_instance.notes_to_add = []
+        file_instance.regex_id_indexes = []
+        file_instance.uuid_for_regex_add = []
+        file_instance.notes_to_delete = []
+
+        # Mock matches for findignore
+        mock_match_id_tags = MagicMock(group=lambda x: "123" if x == 1 else "tag1", span=lambda: (0, 10))
+        mock_match_id = MagicMock(group=lambda x: "456" if x == 1 else None, span=lambda: (11, 20))
+        mock_match_tags = MagicMock(group=lambda x: "tag2" if x == 1 else None, end=lambda: 30, span=lambda: (21, 30))
+        mock_match_no_id_tags = MagicMock(group=lambda x: "content" if x == 1 else None, end=lambda: 40, span=lambda: (31, 40))
+
+        mock_findignore.side_effect = [
+            [mock_match_id_tags], # regexp_tags_id
+            [mock_match_id],      # regexp_id
+            [mock_match_tags],    # regexp_tags
+            [mock_match_no_id_tags] # regexp_plain
+        ]
+
+        # Mock RegexNote parsing
+        mock_parsed_id_tags = MagicMock(id=123, note={"tags": []})
+        mock_parsed_id = MagicMock(id=456, note={"tags": []})
+        mock_parsed_tags = MagicMock(id=None, note={"tags": []})
+        mock_parsed_no_id_tags = MagicMock(id=None, note={"tags": []})
+
+        MockRegexNote.return_value.parse.side_effect = [
+            mock_parsed_id_tags,
+            mock_parsed_id,
+            mock_parsed_tags,
+            mock_parsed_no_id_tags
+        ]
+
+        globals.EXISTING_IDS = [123, 456]
+        MockRegexNote.TAG_REGEXP_STR = ""
+        MockRegexNote.ID_REGEXP_STR = ""
+
+        file_instance.search("MyNoteType", "MY_REGEX")
+
+        assert len(file_instance.notes_to_edit) == 2
+        assert file_instance.notes_to_edit[0] == mock_parsed_id_tags
+        assert file_instance.notes_to_edit[1] == mock_parsed_id
+        assert len(file_instance.notes_to_add) == 2
+        assert file_instance.notes_to_add[0] == mock_parsed_tags.note
+        assert file_instance.notes_to_add[1] == mock_parsed_no_id_tags.note
+        assert len(file_instance.regex_id_indexes) == 2
+        assert file_instance.regex_id_indexes[0] == 30
+        assert file_instance.regex_id_indexes[1] == 40
+        assert len(file_instance.ignore_spans) == 4
 
     def test_remove_empties(self):
         file_instance = File("dummy.md")
-        file_instance.file = "Some content\n<!--id:123-->\nMore content"
+        file_instance.file = "## \nID: 123\n## "
         file_instance.remove_empties()
-        assert file_instance.file == "Some content\nMore content"
+        assert file_instance.file == ""
 
     @patch('src.obsidian_to_anki.file.write_safe')
     def test_write_file_changed(self, mock_write_safe):
@@ -270,155 +420,3 @@ class TestFile:
             call("multi", actions=[mock_anki_request.return_value, mock_anki_request.return_value])
         ], any_order=True)
         assert result == mock_anki_request.return_value
-
-
-class TestRegexFile:
-
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        # Reset globals before each test to ensure isolation
-        globals.CONFIG_DATA = {
-            "Vault": "",
-            "NOTE_PREFIX": "## ",
-            "NOTE_SUFFIX": "## ",
-            "DECK_LINE": "Deck",
-            "TAG_LINE": "Tags",
-            "INLINE_PREFIX": "{{",
-            "INLINE_SUFFIX": "}}",
-            "FROZEN_LINE": "Frozen",
-            "Comment": False,
-            "CUSTOM_REGEXPS": {"MyNoteType": "MY_REGEX"}
-        }
-        globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
-        globals.NOTE_REGEXP = re.compile(r"## (.*?)\n(.*?)\n## ", re.DOTALL)
-        globals.INLINE_REGEXP = re.compile(r"\{\{(.*?)\}\}")
-        globals.EMPTY_REGEXP = re.compile(r"<!--id:(\d+)-->")
-        globals.EXISTING_IDS = []
-        globals.FIELDS_DICT = {}
-        globals.NOTE_DICT_TEMPLATE = {"tags": [], "deckName": "Default"}
-        globals.ID_PREFIX = "<!--id:"
-        globals.TAG_SEP = " "
-        globals.OBS_INLINE_MATH_REGEXP = re.compile(r"\$(.*?)\$")
-        globals.OBS_DISPLAY_MATH_REGEXP = re.compile(r"\$\$(.*?)\$\$")
-        globals.OBS_CODE_REGEXP = re.compile(r"`(.*?)`")
-        globals.OBS_DISPLAY_CODE_REGEXP = re.compile(r"```(.*?)```", re.DOTALL)
-
-    @patch('src.obsidian_to_anki.file.spans')
-    def test_add_spans_to_ignore(self, mock_spans):
-        file_instance = RegexFile("dummy.md")
-        file_instance.file = "some content"
-        file_instance.ignore_spans = []
-
-        mock_spans.side_effect = [[(0, 10)], [(11, 20)], [(21, 30)], [(31, 40)], [(41, 50)], [(51, 60)]]
-
-        file_instance.add_spans_to_ignore()
-
-        assert len(file_instance.ignore_spans) == 6
-        mock_spans.assert_has_calls([
-            call(globals.NOTE_REGEXP, file_instance.file),
-            call(globals.INLINE_REGEXP, file_instance.file),
-            call(globals.OBS_INLINE_MATH_REGEXP, file_instance.file),
-            call(globals.OBS_DISPLAY_MATH_REGEXP, file_instance.file),
-            call(globals.OBS_CODE_REGEXP, file_instance.file),
-            call(globals.OBS_DISPLAY_CODE_REGEXP, file_instance.file),
-        ])
-
-    @patch('src.obsidian_to_anki.file.RegexFile.setup_frozen_fields_dict')
-    @patch('src.obsidian_to_anki.file.RegexFile.setup_target_deck')
-    @patch('src.obsidian_to_anki.file.RegexFile.setup_global_tags')
-    @patch('src.obsidian_to_anki.file.RegexFile.add_spans_to_ignore')
-    @patch('src.obsidian_to_anki.file.RegexFile.search')
-    def test_scan_file_regex(self, mock_search, mock_add_spans_to_ignore, mock_setup_global_tags, mock_setup_target_deck, mock_setup_frozen_fields_dict):
-        file_content = """
-<!--id:12345-->
-"""
-        file_instance = RegexFile("dummy.md")
-        file_instance.file = file_content
-
-        file_instance.scan_file()
-
-        mock_setup_frozen_fields_dict.assert_called_once()
-        mock_setup_target_deck.assert_called_once()
-        mock_setup_global_tags.assert_called_once()
-        mock_add_spans_to_ignore.assert_called_once()
-        mock_search.assert_called_once_with("MyNoteType", "MY_REGEX")
-        assert file_instance.notes_to_delete == [12345]
-
-    @patch('src.obsidian_to_anki.file.findignore')
-    @patch('src.obsidian_to_anki.file.RegexNote')
-    def test_search(self, MockRegexNote, mock_findignore):
-        file_instance = RegexFile("dummy.md")
-        file_instance.file = "test content"
-        file_instance.ignore_spans = []
-        file_instance.url = "mock_url"
-        file_instance.frozen_fields_dict = {}
-
-        # Mock matches for findignore
-        mock_match_id_tags = MagicMock(group=lambda x: "123" if x == 1 else "tag1", span=lambda: (0, 10))
-        mock_match_id = MagicMock(group=lambda x: "456" if x == 1 else None, span=lambda: (11, 20))
-        mock_match_tags = MagicMock(group=lambda x: "tag2" if x == 1 else None, end=lambda: 30, span=lambda: (21, 30))
-        mock_match_no_id_tags = MagicMock(group=lambda x: "content" if x == 1 else None, end=lambda: 40, span=lambda: (31, 40))
-
-        mock_findignore.side_effect = [
-            [mock_match_id_tags], # regexp_tags_id
-            [mock_match_id],      # regexp_id
-            [mock_match_tags],    # regexp_tags
-            [mock_match_no_id_tags] # regexp
-        ]
-
-        # Mock RegexNote parsing
-        mock_parsed_id_tags = MagicMock(id=123, note={"tags": []})
-        mock_parsed_id = MagicMock(id=456, note={"tags": []})
-        mock_parsed_tags = MagicMock(id=None, note={"tags": []})
-        mock_parsed_no_id_tags = MagicMock(id=None, note={"tags": []})
-
-        MockRegexNote.return_value.parse.side_effect = [
-            mock_parsed_id_tags,
-            mock_parsed_id,
-            mock_parsed_tags,
-            mock_parsed_no_id_tags
-        ]
-
-        globals.EXISTING_IDS = [123, 456]
-
-        file_instance.search("MyNoteType", "MY_REGEX")
-
-        assert len(file_instance.notes_to_edit) == 2
-        assert file_instance.notes_to_edit[0] == mock_parsed_id_tags
-        assert file_instance.notes_to_edit[1] == mock_parsed_id
-        assert len(file_instance.notes_to_add) == 2
-        assert file_instance.notes_to_add[0] == mock_parsed_tags.note
-        assert file_instance.notes_to_add[1] == mock_parsed_no_id_tags.note
-        assert len(file_instance.id_indexes) == 2
-        assert file_instance.id_indexes[0] == 30
-        assert file_instance.id_indexes[1] == 40
-        assert len(file_instance.ignore_spans) == 4
-
-    def test_fix_newline_ids(self):
-        file_instance = RegexFile("dummy.md")
-        file_instance.file = "Line1\n\n<!--id:123-->\nLine2\r\n\r\n<!--id:456-->\r\nLine3"
-        file_instance.fix_newline_ids()
-        assert file_instance.file == "Line1\n<!--id:123-->\nLine2\r\n<!--id:456-->\r\nLine3"
-
-    @patch('src.obsidian_to_anki.file.string_insert')
-    @patch('src.obsidian_to_anki.file.RegexFile.fix_newline_ids')
-    def test_write_ids_regex(self, mock_fix_newline_ids, mock_string_insert):
-        file_instance = RegexFile("dummy.md")
-        file_instance.file = "original content"
-        file_instance.note_ids = [101, 102]
-        file_instance.id_indexes = [10, 20]
-
-        file_instance.write_ids()
-
-        expected_inserts = [
-            (10, "\n<!--id:101-->\n"),
-            (20, "\n<!--id:102-->\n")
-        ]
-        mock_string_insert.assert_called_once_with(file_instance.file, expected_inserts)
-        mock_fix_newline_ids.assert_called_once()
-
-    def test_remove_empties_regex(self):
-        file_instance = RegexFile("dummy.md")
-        file_instance.file = "Some content\n<!--id:123-->\nMore content"
-        file_instance.remove_empties()
-        assert file_instance.file == "Some content\nMore content"

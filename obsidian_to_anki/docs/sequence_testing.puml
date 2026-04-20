@@ -13,11 +13,11 @@ participant SUT
 pytest -> pytest : collect test classes\nfrom tests/*.py
 
 note over pytest
-  10 test files covering:
+  11 test files covering:
   test_note, test_file, test_directory,
   test_app, test_config, test_data,
   test_anki_connect, test_format_converter,
-  test_utils, test_debugger
+  test_utils, test_debugger, test_db
 end note
 
 == Per-Test Execution ==
@@ -34,6 +34,7 @@ loop for each test method
     globals.EXISTING_IDS = []
     globals.MEDIA = {}
     globals.FILE_HASHES = {}
+    globals.NOTE_DB = None     ← disable DB in file/note tests
     globals.ID_PREFIX = "ID: "
     (varies by test class)
   end note
@@ -54,10 +55,11 @@ loop for each test method
     • test_format_converter: format_converter.file_encode
     • test_utils: socket.create_connection, time.sleep
     • test_config: configparser.ConfigParser
-    • test_data: json.load, json.dump
+    • test_data: data.NoteDB → in-memory NoteDB(":memory:")
+                 (json.dump/load for JSON backup assertions)
     • test_directory: os.scandir, os.chdir
-      (no longer patches App.SUPPORTED_EXTS —
-       directory iterates all files unconditionally)
+    • test_db: no mocks — uses NoteDB(":memory:") directly
+      (no AnkiConnect, no filesystem access)
   end note
   Mocks --> pytest : patched environment ready
   deactivate Mocks
@@ -65,7 +67,7 @@ loop for each test method
   pytest -> TestMethod : run test method(mock_arg1, mock_arg2, ...)
   activate TestMethod
 
-  TestMethod -> SUT : create instance\n(Note, File, Directory, App, ...)
+  TestMethod -> SUT : create instance\n(Note, File, Directory, App, NoteDB, ...)
   activate SUT
   SUT -> globals : read CONFIG_DATA, FIELDS_DICT, etc.\n(pre-set by fixture to known values)
   SUT --> TestMethod : instance
@@ -73,7 +75,7 @@ loop for each test method
 
   TestMethod -> SUT : call method under test
   activate SUT
-  SUT -> Mocks : call mocked dependency\n(AnkiConnect.invoke, open, os.rename, ...)
+  SUT -> Mocks : call mocked dependency\n(AnkiConnect.invoke, open, NoteDB, ...)
   Mocks --> SUT : return fake/controlled response
   SUT --> TestMethod : result
   deactivate SUT
@@ -99,11 +101,28 @@ note over Fixture, globals
     def setup(self):
         globals.CONFIG_DATA = {...}
         globals.FIELDS_DICT = {...}
+        globals.NOTE_DB = None   ← prevents DB calls in File/Note tests
         ...
 
   This ensures no state leaks between tests.
   Regex globals are recompiled from scratch
   because they depend on CONFIG_DATA values.
+end note
+
+== NoteDB Test Isolation (test_db.py) ==
+
+note over Fixture, SUT
+  test_db.py uses an in-memory SQLite fixture:
+    @pytest.fixture
+    def db():
+        instance = NoteDB(":memory:")
+        yield instance
+        instance.close()
+
+  Each test gets a fresh empty DB.
+  No filesystem access, no globals dependency.
+  Covers: upsert/get/delete notes, mark_synced,
+          file_hashes, added_media.
 end note
 
 == AnkiConnect Mock Layers ==

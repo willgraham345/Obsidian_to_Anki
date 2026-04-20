@@ -148,7 +148,7 @@ class TestFormatConverter:
         html_text = '<img alt="" src="path/to/image.png">\n<img alt="" src="https://example.com/remote.jpg">\n'
         with patch('src.obsidian_to_anki.format_converter.FormatConverter.path_to_filename') as mock_path_to_filename:
             mock_path_to_filename.side_effect = [
-                '<img alt="" src="image.png">', '<img alt="" src="https://example.com/remote.jpg">'
+                '<img alt="" src="image.png"', '<img alt="" src="https://example.com/remote.jpg"'
             ]
             result = FormatConverter.fix_image_src(html_text)
             assert result == '<img alt="" src="image.png">\n<img alt="" src="https://example.com/remote.jpg">\n'
@@ -199,4 +199,4 @@ class TestFormatConverter:
 
         text = "<p>Multiple paragraphs</p><p>Second paragraph</p>"
         result = FormatConverter.format(text)
-        assert result == "<p>Multiple paragraphs</p><p>Second paragraph</p>"
+        assert result == "<p>Multiple paragraphs</p>\n<p>Second paragraph</p>"

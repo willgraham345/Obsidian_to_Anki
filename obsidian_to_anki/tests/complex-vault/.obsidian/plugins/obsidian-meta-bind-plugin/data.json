@@ -1,0 +1,27 @@
+{
+  "devMode": false,
+  "ignoreCodeBlockRestrictions": false,
+  "preferredDateFormat": "YYYY-MM-DD",
+  "firstWeekday": {
+    "index": 1,
+    "name": "Monday",
+    "shortName": "Mo"
+  },
+  "syncInterval": 200,
+  "minSyncInterval": 50,
+  "maxSyncInterval": 1000,
+  "enableJs": false,
+  "viewFieldDisplayNullAsEmpty": true,
+  "enableSyntaxHighlighting": true,
+  "enableEditorRightClickMenu": true,
+  "inputFieldTemplates": [
+    {
+      "name": "summary",
+      "declaration": "INPUT[textArea]"
+    }
+  ],
+  "buttonTemplates": [],
+  "excludedFolders": [
+    "templates"
+  ]
+}

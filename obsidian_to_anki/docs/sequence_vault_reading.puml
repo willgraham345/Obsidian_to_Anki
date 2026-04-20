@@ -6,6 +6,7 @@ participant Directory
 participant File
 participant "Note / InlineNote" as Note
 participant FormatConverter
+participant NoteDB
 participant globals
 
 App -> Directory : __init__(abspath, regex=False)
@@ -26,9 +27,12 @@ loop for each file in directory (all files treated as markdown)
     activate File
 
     File -> File : _setup_scan()
-    note right: calls setup_frozen_fields_dict(),\nsetup_target_deck(), setup_global_tags()\nand initialises all note lists to []
+    note right: calls setup_frozen_fields_dict(),\nsetup_target_deck(), setup_global_tags()\nand initialises all note lists to []\n(including uuid_for_add, uuid_for_inline_add)
 
     loop for each NOTE_REGEXP match (START...END block)
+      File -> File : _handle_block_note(match)
+      activate File
+
       File -> Note : __init__(note_text)
       activate Note
       Note -> Note : parse ID from last line
@@ -59,19 +63,35 @@ loop for each file in directory (all files treated as markdown)
       Note --> File : Note_and_id(note_dict, id)
       deactivate Note
 
+      File -> File : _apply_change_detection(parsed, file_path, line_no)
+      note right
+        Only runs when globals.NOTE_DB is set
+        and the note has no existing Anki ID.
+        Looks up (file_path, line_no, note_type) in DB.
+        If content (field_1 / field_2) has changed:
+          → queue old anki_id in notes_to_delete
+          → treat note as new (re-add to Anki)
+      end note
+
       alt id is None (new note)
-        File -> File : append to notes_to_add\nrecord position in id_indexes
+        File -> NoteDB : get_note_by_location(file_path, line_no, note_type)
+        NoteDB --> File : existing record or None
+        File -> NoteDB : upsert_note(uuid, anki_id=None,\n  file_path, line_number, note_type,\n  field_1, field_2, image_paths,\n  tags, deck_name)
+        note right: uuid is reused if record exists,\notherwise a new UUID is generated
+        File -> File : append to notes_to_add\nrecord position in id_indexes\nappend uuid to uuid_for_add
       else id in globals.EXISTING_IDS (existing)
+        File -> NoteDB : upsert_note(uuid, anki_id=id, ...)
         File -> File : append to notes_to_edit
       else id unknown
         File -> File : log warning
       end
+
+      deactivate File
     end
 
     loop for each INLINE_REGEXP match (STARTI...ENDI)
-      File -> Note : InlineNote.__init__(note_text)
-      File -> Note : parse(deck, url, frozen_fields_dict)
-      note right: same flow as block note;\nfields parsed by space-separated tokens
+      File -> File : _handle_inline_note(match)
+      note right: same flow as block note;\nfields parsed by space-separated tokens;\nDB upsert + change detection identical
       File -> File : append to inline_notes_to_add\nor notes_to_edit
     end
 

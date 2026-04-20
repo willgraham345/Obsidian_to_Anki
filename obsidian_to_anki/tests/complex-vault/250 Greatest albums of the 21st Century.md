@@ -1,0 +1,421 @@
+---
+summary:
+type:
+headings:
+aliases: []
+date created: Friday, October 31st 2025, 9:52:31 am
+date modified: Monday, April 13th 2026, 10:02:55 am
+id: 250 Greatest albums of the 21st Century
+tags: []
+template:
+template-version:
+---
+
+- [ ] -- Stankonia -- Outkast
+  - Flows on flows.
+  - 5/5
+
+- [ ] 1 -- 
+- [ ] 2 -- 
+- [ ] 3 -- 
+- [ ] 4 -- 
+- [ ] 5 -- 
+- [ ] 6 -- 
+- [ ] 7 -- 
+- [ ] 8 -- 
+- [ ] 9 -- 
+- [ ] 10 -- 
+- [ ] 11 -- 
+- [ ] 12 -- 
+- [ ] 13 -- 
+- [ ] 14 -- 
+- [ ] 15 -- 
+- [ ] 16 -- 
+- [ ] 17 -- 
+- [ ] 18 -- 
+- [ ] 19 -- 
+- [ ] 20 -- 
+- [ ] 21 -- 
+- [ ] 22 -- 
+- [ ] 23 -- 
+- [ ] 24 -- 
+- [ ] 25 -- 
+- [ ] 26 -- 
+- [ ] 27 -- 
+- [ ] 28 -- 
+- [ ] 29 -- 
+- [ ] 30 -- 
+- [ ] 31 -- 
+- [ ] 32 -- 
+- [ ] 33 -- 
+- [ ] 34 -- 
+- [ ] 35 -- 
+- [ ] 36 -- 
+- [ ] 37 -- 
+- [ ] 38 -- 
+- [ ] 39 -- 
+- [ ] 40 -- 
+- [ ] 41 -- 
+- [ ] 42 -- 
+- [ ] 43 -- 
+- [ ] 44 -- 
+- [ ] 45 -- 
+- [ ] 46 -- 
+- [ ] 47 -- 
+- [ ] 48 -- 
+- [ ] 49 -- 
+- [ ] 50 -- 
+- [ ] 51 -- 
+- [ ] 52 -- 
+- [ ] 53 -- 
+- [ ] 54 -- 
+- [ ] 55 -- 
+- [ ] 56 -- 
+- [ ] 57 -- 
+- [ ] 58 -- 
+- [ ] 59 -- 
+- [ ] 60 -- 
+- [ ] 61 -- 
+- [ ] 62 -- 
+- [ ] 63 -- 
+- [ ] 64 -- 
+- [ ] 65 -- 
+- [ ] 66 -- 
+- [ ] 67 -- 
+- [ ] 68 -- 
+- [ ] 69 -- 
+- [ ] 70 -- 
+- [ ] 71 -- 
+- [ ] 72 -- 
+- [ ] 73 -- 
+- [ ] 74 -- 
+- [ ] 75 -- 
+- [ ] 76 -- 
+- [ ] 77 -- 
+- [ ] 78 -- 
+- [ ] 79 -- 
+- [ ] 80 -- 
+- [ ] 81 -- 
+- [ ] 82 -- 
+- [ ] 83 -- 
+- [ ] 84 -- 
+- [ ] 85 -- 
+- [ ] 86 -- 
+- [ ] 87 -- 
+- [ ] 88 -- 
+- [ ] 89 -- 
+- [ ] 90 -- 
+- [ ] 91 -- 
+- [ ] 92 -- 
+- [ ] 93 -- 
+- [ ] 94 -- 
+- [ ] 95 -- 
+- [ ] 96 -- 
+- [ ] 97 -- 
+- [ ] 98 -- 
+- [ ] 99 -- 
+- [ ] 100 --
+- [ ] 101 --
+- [ ] 102 --
+- [ ] 103 --
+- [ ] 104 --
+- [ ] 105 --
+- [ ] 106 --
+- [ ] 107 --
+- [ ] 108 --
+- [ ] 109 --
+- [ ] 110 --
+- [ ] 111 --
+- [ ] 112 --
+- [ ] 113 --
+- [ ] 114 --
+- [ ] 115 --
+- [ ] 116 --
+- [ ] 117 --
+- [ ] 118 --
+- [ ] 119 --
+- [ ] 120 --
+- [ ] 121 --
+- [ ] 122 --
+- [ ] 123 --
+- [ ] 124 --
+- [ ] 125 --
+- [ ] 126 --
+- [ ] 127 --
+- [ ] 128 --
+- [ ] 129 --
+- [ ] 130 --
+- [ ] 131 --
+- [ ] 132 --
+- [ ] 133 --
+- [ ] 134 --
+- [ ] 135 --
+- [ ] 136 --
+- [ ] 137 --
+- [ ] 138 --
+- [ ] 139 --
+- [ ] 140 --
+- [ ] 141 --
+- [ ] 142 --
+- [ ] 143 --
+- [ ] 144 --
+- [ ] 145 --
+- [ ] 146 --
+- [ ] 147 --
+- [ ] 148 --
+- [ ] 149 --
+- [ ] 150 --
+- [ ] 151 -- Stephen Malkmus and the Jicks -- Mirror Traffic
+- [ ] 152 -- Rich Gang -- Tha Tour Part 1
+- [ ] 153 -- Fountains of Wayne -- Welcome Interstate Managers
+- [ ] 154 -- Natalia Lafourcade -- Hasta la Raiz
+- [ ] 155 -- Billie Eilish -- Happier than ever
+- [ ] 156 -- Kofee -- Gifted
+- [ ] 157 -- D'Angelo and the Vanguard -- Black Messiah
+- [ ] 158 -- Courtney Barnett -- Sometimes I sit and Think, and Sometimes I just sit
+- [ ] 159 -- System of a Down -- Toxicity
+- [ ] 160 -- Jlin -- Black Origami
+- [ ] 161 -- Drive-By Truckers -- Southern Rock Opera
+- [ ] 162 -- U2 -- All that you can't leave behind
+- [ ] 163 -- Alabama shakes -- Boys & Girls
+- [ ] 164 -- Missy Elliott -- Miss E ... So Addictive
+- [ ] 165 -- Brandy Clark -- 12 Stories
+- [ ] 166 -- Danny Brown -- XXX
+- [ ] 167 -- The Postal Service -- Give Up
+- [ ] 168 -- Tierra Whack -- Whack World
+- [ ] 169 -- Manu Chao -- Proxima Estacion: Esperanza
+- [ ] 170 -- My Morning Jacket -- It still Moves
+- [ ] 171 -- Mastodon -- Leviathan
+- [ ] 172 -- Common -- Like Water for Chocolate
+- [ ] 173 -- Four Tet -- Rounds
+- [ ] 174 -- Aaliyah -- Aaliyah
+- [ ] 175 -- Girl Talk -- Night Ripper
+- [ ] 176 -- Shakira -- Laundry Service
+- [ ] 177 -- Dizzee Rascal -- Boy in Da Corner
+
+- [/] 178 -- Father John Misty -- I Love You, Honeybear
+
+- [x] 179 -- Paul Simon -- So Beautiful or So What ✅ 2026-04-13
+	- I liked it. This guy seems to be a cult classic. I didn't give this enough time to fully get into it--but I could see this being a solid listen in the future. 
+- [x] 180 -- Killer Mike -- R.A.P. Music ✅ 2026-04-07
+	- didn’t like it to start. Really liked it by the end. Last half of the album is better imo
+	- 3/5
+- [x] 181 -- Boygenius -- The Record ✅ 2026-03-26
+	- Liked it more than I thought. Good indie album.
+	- 2/5
+- [x] 182 -- Red Hot Chili Peppers -- Stadium Arcadium ✅ 2026-03-26
+  - Gotta be on the top 50 rock albums of all time. Incredible record, love this thing.
+  - 2/5
+  - Honestly, pretty bad after the first couple of songs. 
+- [x] 183 -- Rapsody -- Laila's Wisdom
+  - I really liked this. Right up my alley, wasn't surprised to see Kdot on it.
+  - 4/5
+- [x] 184 -- Sonic Youth -- Sonic Nurse
+- This was fine. Nothing great.
+- 2/5
+- [x] 185 -- Sophie -- Oil of Every Pearl's Un-Insides
+  - This is too meta for me.... I'm sure there was something big done here, I just don't really want to listen to it. A soundboard needs to be taken away from whoever made this.
+  - 1/5
+- [x] 186 -- Janelle Monae -- Dirty Computer 2026-03-04
+  - I wasn't expecting this thing to be so sexual. I love 'I like that' and had already heard that before. I was excited to hear the rest of the album, and I wasn't ready for how graphic it was.
+  - Felt letdown by what I was hoping for. I like her other albums more here.
+  - 2/5
+- [x] 187 -- Jamie XX -- In Colour ✅ 2026-03-04
+  - 3/5 
+  - Solid stuff to listen to at work. That said, nothing crazy here.
+- [x] 188 -- Japandroids -- Celebration Rock ✅ 2026-03-02
+- Solid 30 minute hit, held up well for being punk rock from 2004. Not my favorite, don't hate it.
+- 2/5
+- [x] 189 -- Sean Paul -- Dutty Rock ✅ 2026-03-02
+	- Didn't understand a word, had some bops. That said, a BRUTAL listen all the way through. Way too much going on to do anything else.
+- 3/5
+- [x] 190 -- Alvvays -- Alvvays ✅ 2026-03-02
+	- solid. Nothing crazy new, nothing experimental. Good solid album. 
+	- 3/5
+- [ ] 191 -- Karol G -- Manana Sera Bonito
+- [x] 192 -- Converge -- Jane Doe
+	- Didn't know this was screamo to start, jumped right out of my chair. Listened for like 3 more songs and decided 
+	- 1/5
+- [x] 193 -- Feist -- Let it die ✅ 2026-02-26
+    - The whimsy I felt listening to this album was like a meadow run.
+    - 3/5 or 4/5
+- [x] 194 -- Travis Scott -- Astroworld ✅ 2026-02-26
+    - This does not deserve even half of the hype it gets. This is "deep music" for a 1 start high school linebacker with 15 concussions that can't read a book without pictures trying to get "in his feels". Music for idiots.
+    - Hard for me to separate this from the people who listen to it. Aside from the social connotations--the music is just corny. Beats weren't awful. The production was decent.
+    - 1/5
+- [x] 195 -- The Hold Steady -- Separation Sunday
+  - This is just awful. It's on sight if you like this.
+  - 1/5
+- [x] 196 -- Taylor Swift -- Speak Now
+  - 4/5
+  - Hard to rate this one. It's Kate's favorite album, and most of the songs sound *exactly* like her happy lil 13-year old inner monologue. What's most impressive about this album is how well it encapsulates the idyllic world view of 2007. Crazy.
+- [x] 197 -- Popcaan -- Where We Come From
+  - I'm aware enough to know this isn't my thing, and I still kind of like it. Hilarious to hear PushaT involved here. I can see the value in this thing, but it doesn't grab me in some of the other 3/5 albums.
+  - 2/5
+- [x] 198 -- Phoenix -- Wolfgang Amadeus
+  - This is only like 7 songs, and each one is solid. Cool album talking all about missed expectations, the reality of getting older, and how time connects with the future. Really really liked this whole album. They had something to say, said it, and wrapped it in some solid really catch music.
+  - One of the bets millenial/Gen Z works.
+  - 4/5
+- [x] 199 -- Cam'ron -- Come home with Me
+    - Wasn't familiar with him before this, sounded VERY west coast to me. Especially since he sampled Tupac. Anyways, solid few hits. Nothing that achieved insane insane success, but still pretty solid tracks. Some hilarious bars are thrown around as the hook in this.
+    - I'm biased here, because I love this era of hip hop. 3/5
+- [x] 200 The New Pornographers  -- Mass Romantic ✅ 2026-02-04
+    - Actually didn't hate it. Kind of a funny band name, liked this way more than I thought I would. Production is way ahead of its time for 2000. 
+    - 3/5
+- [x] 201 -- PushaT -- Daytona ✅ 2026-02-04
+    - 3/5 
+    - When he hits, he hits. Last half of the album is pretty missable, but the first few songs are solid. This dude is a straight up psycho.
+- [x] 202 -- The Libertines -- Up the bracket ✅ 2026-02-03
+    - Solid alt rock album. Felt like the drums were excessive. Way too much cymbal for me.
+    - 2/5
+- [x] 203 -- 50 Cent -- Get Rich or Die Tryin ✅ 2026-02-02
+  - Curtis is hilarious, and he makes a bop
+  - [x] 5/5 ✅ 2026-02-02
+- [ ] 204 -- Jazmine Sullivan -- Heaux Tales, Mo'Tales
+
+**SCHEMA SHIFT:**
+
+- [x] 205 -- Oh, Inverted World -- The Shins 2026-02-02
+  - 2/5
+  - It's fine. Nothing I love. I don't mind it. Coming out in 2001 and aging this well is impressive. Felt like listening to the precursor of the Lumineers. 
+  - Solid vocals, solid vibes.
+  - I feel like this is quietly very artistic and deep. That said, I need more of a hook to love this thing.
+- [x] 206 -- St. Vincent -- St. Vincent ✅ 2026-01-07
+	- 3/5
+  - Originally didn't like this, came back and I love this thing. Solid couple of hits. Solid production. That said, didn't love the middle. Felt like this was carried by the hits.
+- [x] 207 -- HERO -- Maren Morris ✅ 2026-01-06
+	- Solid start, quickly fell apart as things went further. Too much Thomas Rhett, not enough old school "the government and rich people are coming after you" country. This'll do numbers in conservative Christian households who love light beer.
+	- 2/5
+- [x] 208 -- Summertime '06-- Vince Staples ✅ 2026-01-06
+	- More trap sound than I'd like. Past that, it's an album that didn't "catch" me at any point. Needs a relisten on my end. 
+	- 2/5
+- [ ] 209 -- Chaos and Creation in the Backyard -- Paul McCartney
+	- Really well done, just not my thing. I can see the appeal, and I can hear how much his writing has been copied in various ways all over music. Hard for me to get over the idea that his best work happened in the 20th century.
+	- 3/5
+- [x] 210 -- Joanna Newsom -- Ys
+- [x] 211 -- Original Pirate Material -- The Streets ✅ 2026-01-06
+  - I know British rap is a thing, but I just can't take it that seriously. Tough to hear this guy be tough when he's got universal healthcare and zero gun violence. Feels a bit too much like slam poetry (derogatory). This is just... bad.
+  - 1/5
+- [ ] 212 -- You Forgot It In People-- Broken Social Scene
+  - Pink floyd meets the early 2000's chill neighborhood BBQ. Great bedroom rock album, solid study music.
+  - 3/5
+- [x] 213 -- What's Your Pleasure? -- Jessie Ware ✅ 2025-12-08
+  - Like enya and an emo pop star met, fell in love, and raised a groovy London child. Really unique.
+  - I understand why someone would like this, just not my vibe. Low-fi groovy.
+  - 2/5
+- [x] 214 -- Rated R -- Queens of the Stone Age ✅ 2025-12-02
+  - Stoner rock that's just not my thing. First two songs are good, falls off from there.
+  - 2/5
+- [ ] 215 -- Si -- Julieta Venegas
+  - I still don't speak Spanish...
+  - ?/5
+- [ ] 216 -- Manic -- Halsey
+  - Couldn't be named any better, tells a story really well... Still a _little_ cringey and not my type of music. Better than I thought it would be.
+  - 3/5
+- [x] 217 -- Brothers -- The Black Keys ✅ 2025-11-26
+  - These guys seem like a chill hang. Fine album, kinda repetitive. Fancy white guy beard barbershop & IPA music.
+  - 3/5
+- [x] 218 -- LONG.LIVE.A$AP -- ASAP Rocky ✅ 2025-11-25
+  - Takes a second to get going, but then hits hard. High highs in the middle. That said, there's a bunch of missable songs in here.
+  - Middle and end of album are peak. Felt like there was too much dischordant melodies in here for me to fully enjoy it.
+  - 4/5
+- [x] 219 -- Swimming -- Mac Miller ✅ 2025-11-20
+  - 4/5
+  - Sucks that this guy isn't still here. Solid album from a solid guy
+- [x] 220 -- M!ssundaztood -- P!nk ✅ 2025-11-20
+  - Captures the full range of emotion that's experienced on a girls trip to Vegas trying to get a Brittany over a divorce.
+  - I'm sure this music is for someone, and it isnsjt for me.
+  - "Once I fed the homeless. I'll never forget. The look on their faces as I treat them with respect. This is my Vietnam" is one of the worst lyrical measures to get past a 4th grade classroom.
+  - 1/5
+- [ ] 221 -- High Violet -- The National
+  - I liked this one. Solid vibes, felt like I could really get into this band.
+  - 3/5
+- [ ] 222 -- For Broken Ears -- Tems
+  - You should need more than 7 songs to get in here.
+- [x] 223 -- Party Music -- The Coup ✅ 2025-11-12
+  - Mixed really well, especially for 2001. Not a great relisten unless you want something unhappy. Not sure how much of an impact this thing made. No standout stars from this album. Just a bunch of "fine" songs. Probably really impactful for 2001.
+  - 2/5
+- [x] 224 -- Reveal -- R.E.M. ✅ 2025-11-12
+  - While I understand this is a huge album for the R.E.M. fanbase, I can't shake the feeling of watching the Office scene where Jan sings to Hunter's singing. If you know, you know. Lyrics are interesting, worth a read through if nothing else.
+  - Dan from Dan in Real Life thinks this is really "punk" music. Unofficial anthem of the most mid BBQ you've ever been to that insists it is "authentic".
+  - 2/5
+- [x] 225 -- Let Go -- Avril Lavigne ✅ 2025-11-11
+  - 3 iconic songs to start, then a steady stream of why we left the 2000s behind. Absolutely laid the foundation for Haley Williams, and other pop stars.
+  - 2/5
+- [x] 226 -- Some Rap Songs -- Earl Sweatshirt ✅ 2025-11-11
+  - 1/5
+  - Felt like this was overmixed. The beats weren't clean at all. I was excited to listen to this one.
+- [x] 227 -- Return to Cookie Mountain -- TV On the Radio ✅ 2025-11-11
+  - Super complicated listen. Feels like this needs to be listened to on its own, probably with a few stimulants or hallucinogens in the system. Honestly, I really liked it, but I don't think I'll throw this on at any point.
+  - 2/5
+- [ ] 228 -- Made in Lagos -- Wizkid
+  - The best quality elevator music I've ever heard. I mean that in a complimentary way.
+  - 3/5
+- [ ] 229 -- Painted Shut -- Hop Along
+  - I think you should need more than 75k monthly listeners to be on this list...
+- [x] 230 -- Bangerz -- Miley Cyrus ✅ 2025-11-06
+  - Woof, Britney doesn't sound good on this one. Miley is a horrible "rapper" too. Definitely in the era when everyone thought they could do this.
+  - Pop girlies man, they bring the heat.
+  - There's a reason the MTV awards were interesting. High key pretty good.
+  - Feast or famine on these songs. They're either _really_ good or _horribly_ bad.
+  - As a work, goes from the peak of the mountain to the bottom of what we know as music. Wild rollercoaster of an album. The good was good, the bad is some of the worst music I've ever had the curse of hearing.
+  - 2/5
+- [x] 231 -- Swearin -- Swearin ✅ 2025-11-06
+  - Ironically, not a single swear word. Nice riffs, but felt like a garage band remake in the year 2021. Not necessarily bad, but I don't fully understand why this made the top 250 list.
+  - 2/5
+- [x] 232 -- American Teen -- Khalid ✅ 2025-11-11
+  - Insanely top-heavy album, feels similar to Chance the Rapper. Hard carried by American Teen, Location, and 8TEEN. I almost wanted to dislike this one, but I have to admit it's a solid listen. Well done, I respect it.
+  - 3/5 (want a 3.5/5 rating here)
+- [ ] 233 -- Pray for Haiti -- Mach-Hommy
+  - It's... fine? Needs to be started again later.
+  - ?/5
+- [x] 234 -- El Madrileno -- C Tangana ✅ 2025-11-06
+  - I have a tough time with Latin music (I don't speak Spanish)...and this was pretty good. Only giving it a 4 because I don't understand any of it which is on me, not the artist.
+  - 4/5
+- [x] 235 -- Future Nostalgia -- Dua Lipa ✅ 2025-11-06
+  - Half the songs don't feel AI generated, which is pretty good for a pop star! Helped me to finally understand the Dua Lipa hye.
+  - 4/5
+- [/] 236 -- GLOW ON -- Turnstile
+  - Overall, one of the more cheerful screamo bands. Not much emo, just riffs and yelling. I _keep_ getting social media posts about this band, and I can't figure out why. I'm not sure why this is as talked about as it is. If someone can enlighten me I'd genuinely appreciate it.
+  - 1/5
+- [/] 237 -- Autobiography -- Ashley simpson
+  - Like many financial instruments, an amount of "cringe" develops compound interest.
+  - 1/5
+- [x] 238 -- Smoke Ring For My Halo -- Kurt Vile ✅ 2025-11-04
+  - Bob Dylan clone who _might_ have a cellphone.
+  - 3/5
+- [x] 239 -- Hot Pink -- Doja Cat ✅ 2025-11-04
+  - Pretty sure gay son doesn't make music quite as catchy as thot daughter. Popstar girlie > Broadway bro.
+  - 2/5
+- [/] 240 -- TYLA -- Tyla
+  - Nothing stood out. Felt like a basic pop star.
+  - 2/5
+- [/] 241 -- Manning Fireworks -- MJ Lenderman
+  - I guess this is someone's favorite music. Very folky. I'm _positive_ there's an underlying message here I'm missing. Need more of a beat to care tho....
+  - 2/5
+- [/] 242 -- La Gran Senora -- Jenni Rivera
+  - This feels like Shrek in a way I can't quite describe...
+  - 3/5
+- [x] 243 -- Collide with the sky -- Pierce the Veil ✅ 2025-11-03
+  - Hard rock. Man, are none of these good?
+  - 1/5
+- [x] 244 -- Savage Mode -- 21 Savage & Metro Boomin ✅ 2025-11-03
+  - Mumble rap sucks. Big ole miss here so far.
+  - 1/5
+- [/] 245 -- The 1975 -- The 1975
+  - An album of around 600 songs. Feels like Young the Giant with a whinier british vibe. Nothing really stood out. Didn't totally hate it tho.
+  - 2/5
+- [x] 246 -- CARE FOR ME -- Saba ✅ 2025-10-31
+  - Couple good ones, nothing I enjoyed that much
+  - 3/5
+- [x] 247 -- Purgatory -- Tyler Childers ✅ 2025-10-31
+  - Legit country/folk. I respect it, just not necessarily my thing.
+  - 3/5
+- [/] 248 -- Teens of Denial -- Car Seat Headrest
+- [x] 249 -- Electra Heart -- Marina ✅ 2025-10-31
+  - 4/5
+  - Iconic, feels like dubstep and Chappel Roan had a lovechild who was into dubstep as a preteen. Honestly loved this album.
+- [x] 250 -- No Strings Attached -- \*NSYNC ✅ 2025-10-31
+  - Kpop pregame montage scene.
+  - I've heard of them so they're at a disadvantage
+  - 3/5

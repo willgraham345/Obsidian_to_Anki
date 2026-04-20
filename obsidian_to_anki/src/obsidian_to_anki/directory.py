@@ -5,7 +5,7 @@ import re
 import logging
 
 from . import globals
-from .file import File, RegexFile
+from .file import File
 from .anki_connect import AnkiConnect
 
 
@@ -20,7 +20,7 @@ class Directory:
     and generating AnkiConnect requests for adding, updating, and deleting notes.
     """
 
-    def __init__(self, abspath: str, regex: bool = False, onefile: str = None):
+    def __init__(self, abspath: str, onefile: str = None):
         """Initializes a Directory object and scans for relevant files.
 
         It identifies files based on supported extensions, handles single file processing,
@@ -28,25 +28,19 @@ class Directory:
 
         :param abspath: The absolute path to the directory to scan.
         :type abspath: str
-        :param regex: A boolean indicating whether to use RegexFile for processing.
-        :type regex: bool
         :param onefile: Optional. If provided, only this single file will be processed.
         :type onefile: str, optional
         """
         self.path = abspath
         self.parent = os.getcwd()
-        if regex:
-            self.file_class = RegexFile
-        else:
-            self.file_class = File
         os.chdir(self.path)
         if onefile:
             # Hence, just one file to do
-            self.files = [self.file_class(onefile)]
+            self.files = [File(onefile)]
         else:
             with os.scandir() as it:
                 self.files = sorted(
-                    [self.file_class(entry.path) for entry in it if entry.is_file()],
+                    [File(entry.path) for entry in it if entry.is_file()],
                     key=_natural_sort_key
                 )
         files_changed = []
