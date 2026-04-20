@@ -147,7 +147,8 @@ class TestConfig:
     @patch('src.obsidian_to_anki.config.configparser.ConfigParser')
     @patch('src.obsidian_to_anki.config.Config.load_syntax')
     @patch('src.obsidian_to_anki.config.Config.load_defaults')
-    def test_load_config(self, mock_load_defaults, mock_load_syntax, MockConfigParser):
+    @patch('src.obsidian_to_anki.config.Config.load_folder_decks')
+    def test_load_config(self, mock_load_folder_decks, mock_load_defaults, mock_load_syntax, MockConfigParser):
         mock_config_instance = MockConfigParser.return_value
         mock_config_instance.read.return_value = None
         mock_config_instance.__getitem__.side_effect = lambda key: {"Custom Regexps": {"NoteType1": "regex1"}}.get(key, {})
@@ -159,4 +160,56 @@ class TestConfig:
         mock_config_instance.read.assert_called_once_with(test_config.CONFIG_PATH, encoding='utf-8-sig')
         mock_load_syntax.assert_called_once_with(mock_config_instance)
         mock_load_defaults.assert_called_once_with(mock_config_instance)
+        mock_load_folder_decks.assert_called_once_with(mock_config_instance)
         assert globals.CONFIG_DATA["CUSTOM_REGEXPS"] == {"NoteType1": "regex1"}
+
+    def test_setup_folder_decks(self):
+        config_parser = configparser.ConfigParser()
+        test_config = Config()
+        test_config.setup_defaults(config_parser)
+        assert "Folder Decks" in config_parser
+        assert dict(config_parser["Folder Decks"]) == {}
+
+    def test_load_folder_decks_populated(self):
+        config_parser = configparser.ConfigParser()
+        config_parser.optionxform = str
+        config_parser["Folder Decks"] = {
+            "Docs/Programming_and_OS/Cpp": "Cpp",
+            "Docs/Programming_and_OS/.*": "Programming",
+        }
+        test_config = Config()
+        test_config.load_folder_decks(config_parser)
+        result = globals.CONFIG_DATA["FOLDER_DECKS"]
+        assert len(result) == 2
+        pat0, deck0 = result[0]
+        assert deck0 == "Cpp"
+        assert pat0.search("Docs/Programming_and_OS/Cpp/templates.md") is not None
+        pat1, deck1 = result[1]
+        assert deck1 == "Programming"
+        assert pat1.search("Docs/Programming_and_OS/Python/foo.md") is not None
+
+    def test_load_folder_decks_empty_section(self):
+        config_parser = configparser.ConfigParser()
+        config_parser["Folder Decks"] = {}
+        test_config = Config()
+        test_config.load_folder_decks(config_parser)
+        assert globals.CONFIG_DATA["FOLDER_DECKS"] == []
+
+    def test_load_folder_decks_skips_blank_entries(self):
+        config_parser = configparser.ConfigParser()
+        config_parser.optionxform = str
+        config_parser["Folder Decks"] = {
+            "Docs/Cpp": "Cpp",
+            "Docs/Empty": "",
+        }
+        test_config = Config()
+        test_config.load_folder_decks(config_parser)
+        assert len(globals.CONFIG_DATA["FOLDER_DECKS"]) == 1
+        _, deck = globals.CONFIG_DATA["FOLDER_DECKS"][0]
+        assert deck == "Cpp"
+
+    def test_load_folder_decks_missing_section(self):
+        config_parser = configparser.ConfigParser()
+        test_config = Config()
+        test_config.load_folder_decks(config_parser)
+        assert globals.CONFIG_DATA["FOLDER_DECKS"] == []

@@ -279,6 +279,40 @@ class NoteDB:
         self._conn.execute("DELETE FROM anki_notes")
         self._conn.commit()
 
+    def reconcile_orphans(self) -> int:
+        """Match orphaned Anki notes to unlinked vault notes by field content.
+
+        For each Anki note not referenced by any vault entry (orphan_in_anki),
+        search for a vault note with NULL anki_id whose field_1, field_2, and
+        note_type all match. If exactly one candidate exists, link them via
+        mark_synced(). Skips if zero or multiple candidates (ambiguous).
+
+        Returns the number of links made.
+        """
+        orphans = self._conn.execute("""
+            SELECT a.anki_id, a.note_type, a.field_1, a.field_2
+            FROM anki_notes a
+            WHERE NOT EXISTS (
+                SELECT 1 FROM notes n WHERE n.anki_id = a.anki_id
+            )
+        """).fetchall()
+
+        linked = 0
+        for orphan in orphans:
+            candidates = self._conn.execute("""
+                SELECT id FROM notes
+                WHERE anki_id IS NULL
+                  AND note_type = ?
+                  AND field_1 IS ?
+                  AND field_2 IS ?
+            """, (orphan["note_type"], orphan["field_1"], orphan["field_2"])).fetchall()
+
+            if len(candidates) == 1:
+                self.mark_synced(candidates[0]["id"], orphan["anki_id"])
+                linked += 1
+
+        return linked
+
     def get_comparison_summary(self) -> list[dict]:
         """Return [{status, n}, ...] from note_comparison grouped by status."""
         rows = self._conn.execute(

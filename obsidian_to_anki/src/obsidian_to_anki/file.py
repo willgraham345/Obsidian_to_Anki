@@ -6,13 +6,14 @@ import os
 import re
 import hashlib
 import uuid as uuid_module
+import urllib.parse
 
 # Cache compiled regex variants for search() keyed by base pattern string
 _regex_cache: dict[str, tuple] = {}
 
 from . import globals
 from .note import Note, InlineNote, RegexNote
-from .utils import string_insert, write_safe, findignore, spans
+from .utils import findignore, spans
 from .anki_connect import AnkiConnect
 
 _IMG_SRC_RE = re.compile(r'<img[^>]+src="([^"]+)"')
@@ -55,23 +56,22 @@ def _db_upsert_note(parsed, file_path: str, line_number: int) -> str:
 class File:
     """Class for performing script operations at the file-level. Requires config to be set."""
 
-    _DOUBLE_NEWLINE_ID_REGEXP = re.compile(
-        r"(\r\n|\r|\n){2}(?:<!--)?" + globals.ID_PREFIX + r"\d+"
-    )
-
     def __init__(self, filepath):
         """Perform initial file reading and attribute setting."""
         self.filename = filepath
         self.path = os.path.abspath(filepath)
         if globals.CONFIG_DATA["Vault"] and globals.VAULT_PATH_REGEXP.search(self.path):
-            self.url = "obsidian://vault/{}".format(
-                globals.VAULT_PATH_REGEXP.search(self.path).group(1)
-            ).replace("\\", "/")
+            vault_rel = globals.VAULT_PATH_REGEXP.search(self.path).group(1).replace("\\", "/")
+            self.url = (
+                "obsidian://open?vault="
+                + urllib.parse.quote(globals.CONFIG_DATA["Vault"], safe="")
+                + "&file="
+                + urllib.parse.quote(vault_rel, safe="/")
+            )
         else:
             self.url = ""
         with open(self.filename, encoding='utf_8') as f:
             self.file = f.read()
-            self.original_file = self.file
 
     def _setup_scan(self):
         """Initialize lists for scan_file()."""
@@ -79,12 +79,11 @@ class File:
         self.setup_target_deck()
         self.setup_global_tags()
         self.notes_to_add = []        # block + regex notes
-        self.id_indexes = []          # positions for block note IDs
-        self.regex_id_indexes = []    # positions for regex note IDs (need \n prefix)
+        self.id_indexes = []          # count tracker for block notes (used in update_db_anki_ids)
+        self.regex_id_indexes = []    # count tracker for regex notes (used in update_db_anki_ids)
         self.notes_to_edit = []
         self.notes_to_delete = []
         self.inline_notes_to_add = []
-        self.inline_id_indexes = []
         self.uuid_for_add = []        # UUIDs parallel to block notes in notes_to_add
         self.uuid_for_regex_add = []  # UUIDs parallel to regex notes in notes_to_add
         self.uuid_for_inline_add = []
@@ -104,8 +103,14 @@ class File:
         result = globals.DECK_REGEXP.search(self.file)
         if result is not None:
             self.target_deck = result.group(1)
-        else:
-            self.target_deck = globals.NOTE_DICT_TEMPLATE["deckName"]
+            return
+        if globals.CONFIG_DATA.get("Vault") and globals.CONFIG_DATA.get("FOLDER_DECKS"):
+            vault_rel = self._vault_rel_path().replace("\\", "/")
+            for pattern, deck_name in globals.CONFIG_DATA["FOLDER_DECKS"]:
+                if pattern.search(vault_rel):
+                    self.target_deck = deck_name
+                    return
+        self.target_deck = globals.NOTE_DICT_TEMPLATE["deckName"]
 
     def setup_global_tags(self):
         result = globals.TAG_REGEXP.search(self.file)
@@ -127,28 +132,6 @@ class File:
     @property
     def hash(self):
         return hashlib.sha256(self.file.encode('utf-8')).hexdigest()
-
-    def _strip_stale_ids(self):
-        """Pre-pass: remove ID lines for content notes no longer in Anki so they get re-added.
-
-        Skips IDs inside delete-intent blocks (matched by EMPTY_REGEXP) — those
-        are handled by EMPTY_REGEXP and sent to AnkiConnect for deletion.
-        """
-        if not globals.EXISTING_IDS:
-            return
-        # Protect delete-intent blocks so we don't strip their IDs
-        empty_spans = [(m.start(), m.end()) for m in globals.EMPTY_REGEXP.finditer(self.file)]
-        id_re = re.compile(
-            r'[ \t]*(?:<!--)?'
-            + re.escape(globals.ID_PREFIX)
-            + r'(\d+)(?:-->)?[ \t]*\n?'
-        )
-        def drop_if_stale(m):
-            pos = m.start()
-            if any(s <= pos <= e for s, e in empty_spans):
-                return m.group(0)  # leave delete-intent IDs alone
-            return '' if int(m.group(1)) not in globals.EXISTING_IDS else m.group(0)
-        self.file = id_re.sub(drop_if_stale, self.file)
 
     def add_spans_to_ignore(self):
         """Mark math and code sections as regions to skip during regex search."""
@@ -203,7 +186,6 @@ class File:
                 logging.warning("DB write failed for inline note at %s:%d — skipping", file_path, line_no)
                 return
             self.inline_notes_to_add.append(parsed.note)
-            self.inline_id_indexes.append(position)
             self.uuid_for_inline_add.append(note_uuid)
         elif parsed.id not in globals.EXISTING_IDS:
             # Should not reach here after _strip_stale_ids(); safety fallback
@@ -239,7 +221,6 @@ class File:
           6. Collect deletion markers
         """
         logging.info("Scanning file %s for notes...", self.filename)
-        self._strip_stale_ids()
         self._setup_scan()
         self.ignore_spans = []
         self.add_spans_to_ignore()
@@ -339,61 +320,6 @@ class File:
             self.regex_id_indexes.append(match.end())
             self.uuid_for_regex_add.append(note_uuid)
 
-    @staticmethod
-    def _drop_first_char(m):
-        first_newline = m.group(1)
-        return m.group()[len(first_newline):]
-
-    def fix_newline_ids(self):
-        """Remove double newlines before ID annotations (artifact of regex note ID insertion)."""
-        self.file = self._DOUBLE_NEWLINE_ID_REGEXP.sub(self._drop_first_char, self.file)
-
-    @staticmethod
-    def id_to_str(id, inline=False, comment=False):
-        """Get the string repr of id."""
-        result = globals.ID_PREFIX + str(id)
-        if comment:
-            result = "<!--" + result + "-->"
-        if inline:
-            result += " "
-        else:
-            result += "\n"
-        return result
-
-    def write_ids(self):
-        """Write identifiers back to self.file for all three note types.
-
-        Block notes: IDs written as 'ID: xxx\\n' at id_indexes positions.
-        Regex notes: IDs written as '\\nID: xxx\\n' at regex_id_indexes (fix_newline_ids cleans doubles).
-        Inline notes: IDs written as 'ID: xxx ' at inline_id_indexes positions.
-
-        note_ids is ordered: block notes first, then regex notes, then inline notes —
-        matching the order they are appended to notes_to_add + inline_notes_to_add.
-        """
-        logging.info("Writing new note IDs to file %s...", self.filename)
-        n_block = len(self.id_indexes)
-        n_regex = len(self.regex_id_indexes)
-        block_ids = self.note_ids[:n_block]
-        regex_ids = self.note_ids[n_block:n_block + n_regex]
-        inline_ids = self.note_ids[n_block + n_regex:]
-
-        comment = globals.CONFIG_DATA["Comment"]
-        inserts = []
-        inserts += list(zip(
-            self.id_indexes,
-            [self.id_to_str(id, comment=comment) for id in block_ids if id is not None]
-        ))
-        inserts += list(zip(
-            self.regex_id_indexes,
-            ["\n" + self.id_to_str(id, comment=comment) for id in regex_ids if id is not None]
-        ))
-        inserts += list(zip(
-            self.inline_id_indexes,
-            [self.id_to_str(id, inline=True, comment=comment) for id in inline_ids if id is not None]
-        ))
-        self.file = string_insert(self.file, inserts)
-        self.fix_newline_ids()
-
     def update_db_anki_ids(self):
         """After addNote returns IDs, persist them in the DB."""
         db = globals.NOTE_DB
@@ -414,15 +340,6 @@ class File:
         for note_uuid, anki_id in zip(self.uuid_for_inline_add, inline_ids):
             if note_uuid and anki_id is not None:
                 db.mark_synced(note_uuid, anki_id)
-
-    def remove_empties(self):
-        """Remove empty notes from self.file."""
-        self.file = globals.EMPTY_REGEXP.sub("", self.file)
-
-    def write_file(self):
-        """Write to the actual os file"""
-        if self.file != self.original_file:
-            write_safe(self.filename, self.file)
 
     def get_add_notes(self):
         """Get the AnkiConnect-formatted request to add notes.

@@ -8,7 +8,7 @@ from src.obsidian_to_anki.file import File
 from src.obsidian_to_anki.note import Note, InlineNote, RegexNote
 from src.obsidian_to_anki.anki_connect import AnkiConnect
 from src.obsidian_to_anki import globals
-from src.obsidian_to_anki.utils import string_insert, write_safe, findignore, spans
+from src.obsidian_to_anki.utils import findignore, spans
 
 
 class TestFile:
@@ -54,14 +54,13 @@ class TestFile:
         assert file_instance.path == "/mock/path/to/file.md"
         assert file_instance.url == ""
         assert file_instance.file == ""
-        assert file_instance.original_file == ""
 
     @patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/path/to/VaultName/sub/file.md")
     def test_file_init_with_vault(self, mock_abspath):
         globals.CONFIG_DATA["Vault"] = "VaultName"
         globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
         file_instance = File("file.md")
-        assert file_instance.url == "obsidian://vault/sub/file.md"
+        assert file_instance.url == "obsidian://open?vault=VaultName&file=sub/file.md"
 
     def test_hash_property(self):
         file_instance = File("dummy.md")
@@ -90,6 +89,78 @@ class TestFile:
         assert file_instance.target_deck == "MyDeck"
 
         file_instance.file = "No Deck Line"
+        file_instance.setup_target_deck()
+        assert file_instance.target_deck == globals.NOTE_DICT_TEMPLATE["deckName"]
+
+    @patch('src.obsidian_to_anki.file.os.path.abspath',
+           return_value="/vault/Docs/Programming_and_OS/Cpp/templates.md")
+    def test_setup_target_deck_folder_first_match(self, _):
+        globals.CONFIG_DATA["Vault"] = "vault"
+        globals.VAULT_PATH_REGEXP = re.compile(r"vault/(.*)")
+        globals.CONFIG_DATA["FOLDER_DECKS"] = [
+            (re.compile(r"Docs/Programming_and_OS/Cpp"), "Cpp"),
+            (re.compile(r"Docs/Programming_and_OS/.*"), "Programming"),
+        ]
+        file_instance = File("templates.md")
+        file_instance.file = "no deck line here"
+        file_instance.setup_target_deck()
+        assert file_instance.target_deck == "Cpp"
+
+    @patch('src.obsidian_to_anki.file.os.path.abspath',
+           return_value="/vault/Docs/Programming_and_OS/Python/foo.md")
+    def test_setup_target_deck_folder_second_match(self, _):
+        globals.CONFIG_DATA["Vault"] = "vault"
+        globals.VAULT_PATH_REGEXP = re.compile(r"vault/(.*)")
+        globals.CONFIG_DATA["FOLDER_DECKS"] = [
+            (re.compile(r"Docs/Programming_and_OS/Cpp"), "Cpp"),
+            (re.compile(r"Docs/Programming_and_OS/.*"), "Programming"),
+        ]
+        file_instance = File("foo.md")
+        file_instance.file = "no deck line here"
+        file_instance.setup_target_deck()
+        assert file_instance.target_deck == "Programming"
+
+    @patch('src.obsidian_to_anki.file.os.path.abspath',
+           return_value="/vault/Docs/Programming_and_OS/Cpp/templates.md")
+    def test_setup_target_deck_priority_file_marker_wins(self, _):
+        globals.CONFIG_DATA["Vault"] = "vault"
+        globals.VAULT_PATH_REGEXP = re.compile(r"vault/(.*)")
+        globals.CONFIG_DATA["FOLDER_DECKS"] = [
+            (re.compile(r"Docs/Programming_and_OS/Cpp"), "Cpp"),
+        ]
+        file_instance = File("templates.md")
+        file_instance.file = "Deck: ExplicitDeck"
+        file_instance.setup_target_deck()
+        assert file_instance.target_deck == "ExplicitDeck"
+
+    def test_setup_target_deck_no_vault_skips_folder(self):
+        globals.CONFIG_DATA["Vault"] = ""
+        globals.CONFIG_DATA["FOLDER_DECKS"] = [
+            (re.compile(r".*"), "ShouldNotMatch"),
+        ]
+        file_instance = File("dummy.md")
+        file_instance.file = "no deck line here"
+        file_instance.setup_target_deck()
+        assert file_instance.target_deck == globals.NOTE_DICT_TEMPLATE["deckName"]
+
+    def test_setup_target_deck_no_folder_decks_key(self):
+        globals.CONFIG_DATA["Vault"] = "vault"
+        globals.CONFIG_DATA.pop("FOLDER_DECKS", None)
+        file_instance = File("dummy.md")
+        file_instance.file = "no deck line here"
+        file_instance.setup_target_deck()
+        assert file_instance.target_deck == globals.NOTE_DICT_TEMPLATE["deckName"]
+
+    @patch('src.obsidian_to_anki.file.os.path.abspath',
+           return_value="/vault/Biology/genetics.md")
+    def test_setup_target_deck_no_matching_folder(self, _):
+        globals.CONFIG_DATA["Vault"] = "vault"
+        globals.VAULT_PATH_REGEXP = re.compile(r"vault/(.*)")
+        globals.CONFIG_DATA["FOLDER_DECKS"] = [
+            (re.compile(r"Docs/Programming_and_OS/Cpp"), "Cpp"),
+        ]
+        file_instance = File("genetics.md")
+        file_instance.file = "no deck line here"
         file_instance.setup_target_deck()
         assert file_instance.target_deck == globals.NOTE_DICT_TEMPLATE["deckName"]
 
@@ -141,79 +212,6 @@ class TestFile:
         assert file_instance.inline_notes_to_add[0] == mock_inline_note_to_add.note
         assert file_instance.notes_to_edit[0] == mock_note_to_edit
         assert file_instance.notes_to_delete[0] == 67890
-
-    @patch('src.obsidian_to_anki.file.File.fix_newline_ids')
-    @patch('src.obsidian_to_anki.file.string_insert')
-    def test_write_ids(self, mock_string_insert, mock_fix_newline_ids):
-        file_instance = File("dummy.md")
-        file_instance.file = "original content\n## Note\ncontent\n## \n{{Inline Note}}"
-        original_file = file_instance.file
-        file_instance.note_ids = [101, 102]
-        file_instance.notes_to_add = ["note1"]
-        file_instance.inline_notes_to_add = ["inline_note1"]
-        file_instance.id_indexes = [25]
-        file_instance.regex_id_indexes = []
-        file_instance.inline_id_indexes = [45]
-
-        file_instance.write_ids()
-
-        expected_inserts = [
-            (25, "ID: 101\n"),
-            (45, "ID: 102 ")
-        ]
-        mock_string_insert.assert_called_once_with(original_file, expected_inserts)
-        mock_fix_newline_ids.assert_called_once()
-
-    @patch('src.obsidian_to_anki.file.File.fix_newline_ids')
-    @patch('src.obsidian_to_anki.file.string_insert')
-    def test_write_ids_with_regex(self, mock_string_insert, mock_fix_newline_ids):
-        """Regex note IDs get \\n prefix; fix_newline_ids cleans doubles."""
-        file_instance = File("dummy.md")
-        file_instance.file = "original content"
-        original_file = file_instance.file
-        file_instance.note_ids = [101, 201]
-        file_instance.notes_to_add = ["block_note", "regex_note"]
-        file_instance.inline_notes_to_add = []
-        file_instance.id_indexes = [10]
-        file_instance.regex_id_indexes = [20]
-        file_instance.inline_id_indexes = []
-
-        file_instance.write_ids()
-
-        expected_inserts = [
-            (10, "ID: 101\n"),
-            (20, "\nID: 201\n"),
-        ]
-        mock_string_insert.assert_called_once_with(original_file, expected_inserts)
-        mock_fix_newline_ids.assert_called_once()
-
-    def test_fix_newline_ids(self):
-        file_instance = File("dummy.md")
-        file_instance.file = "Line1\n\nID: 123\nLine2\r\n\r\nID: 456\r\nLine3"
-        file_instance.fix_newline_ids()
-        assert file_instance.file == "Line1\nID: 123\nLine2\r\nID: 456\r\nLine3"
-
-    def test_strip_stale_ids_removes_stale(self):
-        file_instance = File("dummy.md")
-        file_instance.file = "Some note\nID: 999\nMore content"
-        globals.EXISTING_IDS = [111]  # 999 not present → stale
-        file_instance._strip_stale_ids()
-        assert "ID: 999" not in file_instance.file
-
-    def test_strip_stale_ids_keeps_valid(self):
-        file_instance = File("dummy.md")
-        file_instance.file = "Some note\nID: 111\nMore content"
-        globals.EXISTING_IDS = [111]
-        file_instance._strip_stale_ids()
-        assert "ID: 111" in file_instance.file
-
-    def test_strip_stale_ids_skips_when_no_existing(self):
-        file_instance = File("dummy.md")
-        original = "Some note\nID: 999\nMore content"
-        file_instance.file = original
-        globals.EXISTING_IDS = []  # empty → skip stripping entirely
-        file_instance._strip_stale_ids()
-        assert file_instance.file == original
 
     @patch('src.obsidian_to_anki.file.spans')
     def test_add_spans_to_ignore(self, mock_spans):
@@ -309,28 +307,6 @@ class TestFile:
         assert file_instance.regex_id_indexes[0] == 30
         assert file_instance.regex_id_indexes[1] == 40
         assert len(file_instance.ignore_spans) == 4
-
-    def test_remove_empties(self):
-        file_instance = File("dummy.md")
-        file_instance.file = "## \nID: 123\n## "
-        file_instance.remove_empties()
-        assert file_instance.file == ""
-
-    @patch('src.obsidian_to_anki.file.write_safe')
-    def test_write_file_changed(self, mock_write_safe):
-        file_instance = File("dummy.md")
-        file_instance.original_file = "original"
-        file_instance.file = "changed"
-        file_instance.write_file()
-        mock_write_safe.assert_called_once_with("dummy.md", "changed")
-
-    @patch('src.obsidian_to_anki.file.write_safe')
-    def test_write_file_not_changed(self, mock_write_safe):
-        file_instance = File("dummy.md")
-        file_instance.original_file = "same"
-        file_instance.file = "same"
-        file_instance.write_file()
-        mock_write_safe.assert_not_called()
 
     @patch('src.obsidian_to_anki.file.AnkiConnect.request')
     def test_get_add_notes(self, mock_anki_request):

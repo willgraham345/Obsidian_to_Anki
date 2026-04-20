@@ -282,7 +282,7 @@ class App:
             )
         )
         globals.VAULT_PATH_REGEXP = re.compile(
-            globals.CONFIG_DATA["Vault"] + r".*"
+            re.escape(globals.CONFIG_DATA["Vault"]) + r"/(.*)"
         )
         globals.FROZEN_REGEXP = re.compile(
             globals.CONFIG_DATA["FROZEN_LINE"] + r" - (.*?):\n((?:[^\n][\n]?)+)"

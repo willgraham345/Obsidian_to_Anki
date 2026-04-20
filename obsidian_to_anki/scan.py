@@ -266,6 +266,10 @@ def scan_anki(db: NoteDB) -> int:
 
     print(f"[anki] Stored {len(all_notes)} notes in anki_notes")
 
+    linked = db.reconcile_orphans()
+    if linked:
+        print(f"[anki] Reconciled {linked} orphan(s) → vault note(s) by field match")
+
     summary = db.get_comparison_summary()
     print("[anki] Comparison vs vault:")
     for row in summary:

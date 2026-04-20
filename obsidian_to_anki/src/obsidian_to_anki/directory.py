@@ -140,10 +140,6 @@ class Directory:
         os.chdir(self.path)
         for file in self.files:
             file.get_cards()
-            file.write_ids()
-            logging.info("Removing empty notes for file " + file.filename)
-            file.remove_empties()
-            file.write_file()
         os.chdir(self.parent)
 
     def requests_2(self) -> dict:

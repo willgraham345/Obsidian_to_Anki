@@ -78,6 +78,7 @@ class Config:
         config["Defaults"].setdefault(
             "Anki Profile", ""
         )
+        config.setdefault("Folder Decks", dict())
 
     def update_config(self):
         """Update config with new notes."""
@@ -146,10 +147,19 @@ class Config:
         )
         globals.CONFIG_DATA["Path"] = config["Defaults"]["Anki Path"]
         globals.CONFIG_DATA["Profile"] = config["Defaults"]["Anki Profile"]
-        globals.CONFIG_DATA["Vault path"] = config["Obsidian"].get("Vault path", "")
+        globals.CONFIG_DATA["Vault"] = config["Obsidian"].get("Vault path", "")
         globals.CONFIG_DATA["Add file link"] = config.getboolean(
             "Obsidian", "Add file link"
         )
+
+    def load_folder_decks(self, config):
+        """Compile folder-to-deck regex mappings from [Folder Decks] config section."""
+        folder_decks = []
+        if "Folder Decks" in config:
+            for pattern, deck_name in config["Folder Decks"].items():
+                if pattern and deck_name:
+                    folder_decks.append((re.compile(pattern), deck_name))
+        globals.CONFIG_DATA["FOLDER_DECKS"] = folder_decks
 
     def load_config(self):
         """Load from an existing config file (assuming it exists)."""
@@ -159,5 +169,6 @@ class Config:
         config.read(self.CONFIG_PATH, encoding='utf-8-sig')
         self.load_syntax(config)
         self.load_defaults(config)
+        self.load_folder_decks(config)
         globals.CONFIG_DATA["CUSTOM_REGEXPS"] = config["Custom Regexps"]
         print("Loaded successfully!")

@@ -147,3 +147,76 @@ class TestAddedMedia:
 
     def test_get_added_media_empty(self, db):
         assert db.get_added_media() == []
+
+
+def _make_anki_note(db, anki_id=1001, note_type="Basic",
+                    field_1="<p>Front</p>", field_2="<p>Back</p>",
+                    tags=None, deck_name="Default", mod_timestamp=None):
+    db.upsert_anki_note(
+        anki_id=anki_id,
+        note_type=note_type,
+        field_1=field_1,
+        field_2=field_2,
+        tags=tags or [],
+        deck_name=deck_name,
+        mod_timestamp=mod_timestamp,
+    )
+
+
+class TestReconcileOrphans:
+
+    def test_links_exact_match(self, db):
+        """Orphan Anki note matched to unlinked vault note — link made."""
+        _make_note(db, uuid="v-1", anki_id=None, field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=9001, field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.reconcile_orphans() == 1
+        assert db.get_note("v-1")["anki_id"] == 9001
+
+    def test_skips_already_linked(self, db):
+        """Vault note already has anki_id — not re-linked."""
+        _make_note(db, uuid="v-1", anki_id=9001, field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=9002, field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.reconcile_orphans() == 0
+        assert db.get_note("v-1")["anki_id"] == 9001
+
+    def test_skips_ambiguous_multiple_candidates(self, db):
+        """Two vault notes with identical fields — skip to avoid wrong link."""
+        _make_note(db, uuid="v-1", anki_id=None, field_1="<p>Q</p>", field_2="<p>A</p>", line_number=1)
+        _make_note(db, uuid="v-2", anki_id=None, field_1="<p>Q</p>", field_2="<p>A</p>", line_number=2)
+        _make_anki_note(db, anki_id=9001, field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.reconcile_orphans() == 0
+        assert db.get_note("v-1")["anki_id"] is None
+        assert db.get_note("v-2")["anki_id"] is None
+
+    def test_skips_note_type_mismatch(self, db):
+        """Vault note_type differs from Anki note_type — no link."""
+        _make_note(db, uuid="v-1", anki_id=None, note_type="Basic",
+                   field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=9001, note_type="Cloze",
+                        field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.reconcile_orphans() == 0
+
+    def test_no_orphans_returns_zero(self, db):
+        """No orphaned Anki notes — nothing to do."""
+        _make_note(db, uuid="v-1", anki_id=9001)
+        _make_anki_note(db, anki_id=9001)
+        assert db.reconcile_orphans() == 0
+
+    def test_null_field_2_matches(self, db):
+        """NULL field_2 (e.g. Cloze) matches correctly via IS comparison."""
+        _make_note(db, uuid="v-1", anki_id=None, note_type="Cloze",
+                   field_1="<p>{{c1::text}}</p>", field_2=None)
+        _make_anki_note(db, anki_id=9001, note_type="Cloze",
+                        field_1="<p>{{c1::text}}</p>", field_2=None)
+        assert db.reconcile_orphans() == 1
+        assert db.get_note("v-1")["anki_id"] == 9001
+
+    def test_multiple_independent_matches(self, db):
+        """Multiple distinct orphans each matched to a distinct vault note."""
+        _make_note(db, uuid="v-1", anki_id=None, field_1="<p>Q1</p>", field_2="<p>A1</p>", line_number=1)
+        _make_note(db, uuid="v-2", anki_id=None, field_1="<p>Q2</p>", field_2="<p>A2</p>", line_number=2)
+        _make_anki_note(db, anki_id=9001, field_1="<p>Q1</p>", field_2="<p>A1</p>")
+        _make_anki_note(db, anki_id=9002, field_1="<p>Q2</p>", field_2="<p>A2</p>")
+        assert db.reconcile_orphans() == 2
+        assert db.get_note("v-1")["anki_id"] == 9001
+        assert db.get_note("v-2")["anki_id"] == 9002

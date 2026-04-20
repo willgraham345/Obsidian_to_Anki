@@ -169,14 +169,8 @@ class TestDirectory:
         assert mock_file2.tags == tags
 
         mock_file1.get_cards.assert_called_once()
-        mock_file1.write_ids.assert_called_once()
-        mock_file1.remove_empties.assert_called_once()
-        mock_file1.write_file.assert_called_once()
 
         mock_file2.get_cards.assert_called_once()
-        mock_file2.write_ids.assert_called_once()
-        mock_file2.remove_empties.assert_called_once()
-        mock_file2.write_file.assert_called_once()
 
         mock_chdir.assert_has_calls([call("/mock/dir"), call("/mock/parent")])
 
