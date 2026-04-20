@@ -53,7 +53,7 @@ class Config:
     def setup_defaults(self, config):
         """Sets up default values in the config file, not to do with syntax."""
         config.setdefault("Obsidian", dict())
-        config["Obsidian"].setdefault("Vault name", "")
+        config["Obsidian"].setdefault("Vault path", "")
         config["Obsidian"].setdefault("Add file link", "False")
         config["DEFAULT"] = dict()  # Removes DEFAULT if it's there.
         config.setdefault("Defaults", dict())
@@ -65,9 +65,6 @@ class Config:
         )
         config["Defaults"].setdefault(
             "CurlyCloze", "False"
-        )
-        config["Defaults"].setdefault(
-            "GUI", "True"
         )
         config["Defaults"].setdefault(
             "Regex", "False"
@@ -141,9 +138,6 @@ class Config:
         globals.CONFIG_DATA["CurlyCloze"] = config.getboolean(
             "Defaults", "CurlyCloze"
         )
-        globals.CONFIG_DATA["GUI"] = config.getboolean(
-            "Defaults", "GUI"
-        )
         globals.CONFIG_DATA["Regex"] = config.getboolean(
             "Defaults", "Regex"
         )
@@ -152,7 +146,7 @@ class Config:
         )
         globals.CONFIG_DATA["Path"] = config["Defaults"]["Anki Path"]
         globals.CONFIG_DATA["Profile"] = config["Defaults"]["Anki Profile"]
-        globals.CONFIG_DATA["Vault"] = config["Obsidian"]["Vault name"]
+        globals.CONFIG_DATA["Vault path"] = config["Obsidian"].get("Vault path", "")
         globals.CONFIG_DATA["Add file link"] = config.getboolean(
             "Obsidian", "Add file link"
         )

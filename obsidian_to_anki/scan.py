@@ -289,8 +289,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "vault_path",
         nargs="?",
-        default=_DEFAULT_VAULT,
-        help=f"Path to Obsidian vault (default: {_DEFAULT_VAULT})",
+        default=None,
+        help="Path to Obsidian vault. Falls back to 'Vault path' in config if omitted.",
     )
     parser.add_argument(
         "--vault",
@@ -314,19 +314,21 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    vault_path = os.path.abspath(args.vault_path)
-    if not os.path.isdir(vault_path):
-        parser.error(f"vault_path is not a directory: {vault_path}")
-
     # Resolve which stages to run
     explicit  = args.vault or args.anki or args.all
     run_vault = args.vault or args.all or not explicit
     run_anki  = args.anki  or args.all
 
+    db, _ = _init()
+
+    vault_path = os.path.abspath(
+        args.vault_path or globals.CONFIG_DATA.get("Vault path") or _DEFAULT_VAULT
+    )
+    if not os.path.isdir(vault_path):
+        parser.error(f"vault_path is not a directory: {vault_path}")
+
     print(f"Loaded note types from config: {list(globals.CONFIG_DATA.get('CUSTOM_REGEXPS', {}).keys())}")
     print(f"Vault: {vault_path}\n")
-
-    db, _ = _init()
 
     if run_vault:
         run_vault_scan(vault_path, db)

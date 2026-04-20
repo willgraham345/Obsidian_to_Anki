@@ -309,8 +309,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "vault_path",
         nargs="?",
-        default=_DEFAULT_VAULT,
-        help=f"Path to Obsidian vault for relative paths in markdown (default: {_DEFAULT_VAULT})",
+        default=None,
+        help="Path to Obsidian vault. Falls back to 'Vault path' in config if omitted.",
     )
     parser.add_argument(
         "--output-json",
@@ -331,9 +331,11 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    vault_path = os.path.abspath(args.vault_path)
-
     db = _init()
+
+    vault_path = os.path.abspath(
+        args.vault_path or globals.CONFIG_DATA.get("Vault path") or _DEFAULT_VAULT
+    )
 
     vault_count = db._conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
     anki_count  = db._conn.execute("SELECT COUNT(*) FROM anki_notes").fetchone()[0]
