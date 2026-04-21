@@ -64,9 +64,10 @@ class File:
         self.path = os.path.abspath(filepath)
         if globals.CONFIG_DATA["Vault"] and globals.VAULT_PATH_REGEXP.search(self.path):
             vault_rel = globals.VAULT_PATH_REGEXP.search(self.path).group(1).replace("\\", "/")
+            vault_name = globals.CONFIG_DATA.get("Vault name") or os.path.basename(globals.CONFIG_DATA["Vault"])
             self.url = (
                 "obsidian://open?vault="
-                + urllib.parse.quote(globals.CONFIG_DATA["Vault"], safe="")
+                + urllib.parse.quote(vault_name, safe="")
                 + "&file="
                 + urllib.parse.quote(vault_rel, safe="/")
             )

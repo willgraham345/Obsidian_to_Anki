@@ -54,6 +54,7 @@ class Config:
         """Sets up default values in the config file, not to do with syntax."""
         config.setdefault("Obsidian", dict())
         config["Obsidian"].setdefault("Vault path", "")
+        config["Obsidian"].setdefault("Vault name", "")
         config["Obsidian"].setdefault("Add file link", "False")
         config["DEFAULT"] = dict()  # Removes DEFAULT if it's there.
         config.setdefault("Defaults", dict())
@@ -126,6 +127,7 @@ class Config:
         globals.CONFIG_DATA["Path"]       = config.get("Defaults", "Anki Path", fallback="")
         globals.CONFIG_DATA["Profile"]    = config.get("Defaults", "Anki Profile", fallback="")
         globals.CONFIG_DATA["Vault"]      = config.get("Obsidian", "Vault path", fallback="")
+        globals.CONFIG_DATA["Vault name"] = config.get("Obsidian", "Vault name", fallback="")
         globals.CONFIG_DATA["Add file link"] = config.getboolean("Obsidian", "Add file link", fallback=False)
 
     def load_folder_decks(self, config):
