@@ -162,7 +162,7 @@ class TestFile:
         file_instance = File("genetics.md")
         file_instance.file = "no deck line here"
         file_instance.setup_target_deck()
-        assert file_instance.target_deck == globals.NOTE_DICT_TEMPLATE["deckName"]
+        assert file_instance.target_deck == "Obsidian Unmatched Transfer"
 
     def test_setup_global_tags(self):
         file_instance = File("dummy.md")

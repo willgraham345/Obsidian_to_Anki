@@ -49,6 +49,8 @@ FILE_HASHES = dict()
 
 ANKI_PORT = 8765
 
+UNMATCHED_DECK = "Obsidian Unmatched Transfer"
+
 ANKI_CLOZE_REGEXP = re.compile(r'{{c\d+::[\s\S]+?}}')
 
 # Obsidian source patterns used by File.add_spans_to_ignore() to exclude non-note regions

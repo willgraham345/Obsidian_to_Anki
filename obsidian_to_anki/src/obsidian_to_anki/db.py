@@ -6,6 +6,8 @@ import sqlite3
 import uuid as uuid_module
 from datetime import datetime, timezone
 
+from .utils import strip_html as _plain
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -179,6 +181,19 @@ class NoteDB:
         ).fetchone()
         return dict(row) if row else None
 
+    def get_note_by_content(
+        self, file_path: str, note_type: str, field_1: str | None
+    ) -> dict | None:
+        """Fallback lookup by content when line numbers have shifted.
+
+        Returns the single matching note if exactly one exists, else None.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM notes WHERE file_path = ? AND note_type = ? AND field_1 IS ?",
+            (file_path, note_type, field_1),
+        ).fetchall()
+        return dict(rows[0]) if len(rows) == 1 else None
+
     def delete_note(self, uuid: str) -> None:
         self._conn.execute("DELETE FROM notes WHERE id = ?", (uuid,))
         self._conn.commit()
@@ -283,9 +298,10 @@ class NoteDB:
         """Match orphaned Anki notes to unlinked vault notes by field content.
 
         For each Anki note not referenced by any vault entry (orphan_in_anki),
-        search for a vault note with NULL anki_id whose field_1, field_2, and
-        note_type all match. If exactly one candidate exists, link them via
-        mark_synced(). Skips if zero or multiple candidates (ambiguous).
+        search for a vault note whose anki_id is either NULL or stale (not in
+        the current anki_notes snapshot), with matching field_1, field_2, and
+        note_type. If exactly one candidate exists, link them via mark_synced().
+        Skips if zero or multiple candidates (ambiguous).
 
         Returns the number of links made.
         """
@@ -299,6 +315,7 @@ class NoteDB:
 
         linked = 0
         for orphan in orphans:
+            # Pass 1: exact HTML match — only truly unlinked vault notes
             candidates = self._conn.execute("""
                 SELECT id FROM notes
                 WHERE anki_id IS NULL
@@ -309,6 +326,25 @@ class NoteDB:
 
             if len(candidates) == 1:
                 self.mark_synced(candidates[0]["id"], orphan["anki_id"])
+                linked += 1
+                continue
+
+            # Pass 2: plaintext fallback (Anki normalises HTML on storage)
+            if candidates:
+                continue  # ambiguous exact match — skip
+            plain_f1 = _plain(orphan["field_1"])
+            plain_f2 = _plain(orphan["field_2"])
+            unlinked = self._conn.execute("""
+                SELECT id, field_1, field_2 FROM notes
+                WHERE anki_id IS NULL
+                  AND note_type = ?
+            """, (orphan["note_type"],)).fetchall()
+            text_matches = [
+                r for r in unlinked
+                if _plain(r["field_1"]) == plain_f1 and _plain(r["field_2"]) == plain_f2
+            ]
+            if len(text_matches) == 1:
+                self.mark_synced(text_matches[0]["id"], orphan["anki_id"])
                 linked += 1
 
         return linked

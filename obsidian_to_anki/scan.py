@@ -7,7 +7,7 @@ with AnkiConnect on port 8765.
 Usage (from obsidian_to_anki/):
     uv run python scan.py [vault_path] [--vault] [--anki] [--all]
 
-    vault_path  Path to Obsidian vault (default: tests/complex-vault/)
+    vault_path  Path to Obsidian vault (falls back to 'Vault path' in config)
 
     --vault     Scan vault and populate the notes DB.
     --anki      Query Anki and populate the anki_notes snapshot table.
@@ -39,10 +39,6 @@ from obsidian_to_anki.anki_connect import AnkiConnect         # noqa: E402
 from obsidian_to_anki.config import Config                    # noqa: E402
 from obsidian_to_anki.db import NoteDB                        # noqa: E402
 from obsidian_to_anki.file import File                        # noqa: E402
-
-_DEFAULT_VAULT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "tests", "complex-vault")
-)
 
 # ── Known field names for common note types ────────────────────────────────────
 _KNOWN_FIELDS: dict[str, list[str]] = {
@@ -123,7 +119,7 @@ def _gen_regexp() -> None:
     )
     vault = globals.CONFIG_DATA.get("Vault", "")
     globals.VAULT_PATH_REGEXP = re.compile(
-        re.escape(vault) + r".*" if vault else r"^$"
+        re.escape(vault) + r"/(.*)" if vault else r"^$"
     )
     globals.FROZEN_REGEXP = re.compile(
         globals.CONFIG_DATA["FROZEN_LINE"] + r" - (.*?):\n((?:[^\n][\n]?)+)"
@@ -150,6 +146,37 @@ def _read_frontmatter_sync(file_path: str) -> dict[str, int]:
     except yaml.YAMLError:
         return {}
     return {str(k): int(v) for k, v in fm.get("anki_sync", {}).items()}
+
+
+# ── DB pruning ────────────────────────────────────────────────────────────────
+
+def prune_stale_notes(db: NoteDB, vault_path: str) -> tuple[int, int]:
+    """Remove stale notes from DB.
+
+    Two categories:
+      1. Absolute-path entries — from accidental scans of test/other vaults.
+         Real vault notes use paths relative to vault_path; absolute paths are
+         contamination (e.g. tests/complex-vault scanned directly).
+      2. Vault-relative entries whose file no longer exists on disk.
+
+    Returns (abs_removed, missing_removed).
+    """
+    cur = db._conn.execute("DELETE FROM notes WHERE file_path LIKE '/%'")
+    abs_removed = cur.rowcount
+
+    rows = db._conn.execute(
+        "SELECT DISTINCT file_path FROM notes WHERE file_path NOT LIKE '/%'"
+    ).fetchall()
+    missing_removed = 0
+    for row in rows:
+        full = os.path.join(vault_path, row["file_path"])
+        if not os.path.isfile(full):
+            cur2 = db._conn.execute(
+                "DELETE FROM notes WHERE file_path = ?", (row["file_path"],)
+            )
+            missing_removed += cur2.rowcount
+    db._conn.commit()
+    return abs_removed, missing_removed
 
 
 # ── Stage 1: vault scan ────────────────────────────────────────────────────────
@@ -311,6 +338,15 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run --vault + --anki together.",
     )
+    parser.add_argument(
+        "--prune-stale",
+        action="store_true",
+        dest="prune_stale",
+        help=(
+            "After vault scan: remove DB notes with absolute file paths "
+            "(test-vault contamination) and notes whose vault file no longer exists."
+        ),
+    )
     return parser
 
 
@@ -325,9 +361,13 @@ def main() -> None:
 
     db, _ = _init()
 
-    vault_path = os.path.abspath(
-        args.vault_path or globals.CONFIG_DATA.get("Vault path") or _DEFAULT_VAULT
-    )
+    _vault_raw = args.vault_path or globals.CONFIG_DATA.get("Vault")
+    if not _vault_raw:
+        parser.error(
+            "No vault path provided. Either pass vault_path as an argument "
+            "or set 'Vault path' in the [Obsidian] section of obsidian_to_anki_config.ini."
+        )
+    vault_path = os.path.abspath(_vault_raw)
     if not os.path.isdir(vault_path):
         parser.error(f"vault_path is not a directory: {vault_path}")
 
@@ -336,6 +376,11 @@ def main() -> None:
 
     if run_vault:
         run_vault_scan(vault_path, db)
+
+    if args.prune_stale and run_vault:
+        abs_r, miss_r = prune_stale_notes(db, vault_path)
+        print(f"[prune] Removed {abs_r} absolute-path (test) note(s), "
+              f"{miss_r} note(s) for missing files.")
 
     if run_anki:
         scan_anki(db)

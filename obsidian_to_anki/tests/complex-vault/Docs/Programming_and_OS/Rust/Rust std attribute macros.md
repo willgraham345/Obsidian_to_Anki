@@ -1,24 +1,26 @@
 ---
-summary: 
-headings:
-  - "[[#Usage]]"
-type: note/library
-item_of:
-  - "[[Rust attributes]]"
+anki_sync:
+  354068eb-6568-4a36-b06c-09d397ad5ac5: 1776707762717
 date created: Tuesday, April 8th 2025, 11:08:25 am
 date modified: Tuesday, April 29th 2025, 2:36:22 pm
-tags: 
+headings:
+- '[[#Usage]]'
+item_of:
+- '[[Rust attributes]]'
 items:
-  - "[[Rust testing attributes]]"
-  - "[[Rust derive attributes]]"
-  - "[[Rust diagnostics attributes]]"
-  - "[[Rust codegen attributes]]"
-  - "[[Rust limits attributes]]"
-  - "[[Rust type system attributes]]"
-  - "[[Rust debugger attributes]]"
+- '[[Rust testing attributes]]'
+- '[[Rust derive attributes]]'
+- '[[Rust diagnostics attributes]]'
+- '[[Rust codegen attributes]]'
+- '[[Rust limits attributes]]'
+- '[[Rust type system attributes]]'
+- '[[Rust debugger attributes]]'
 library_of:
-  - "[[Rust attributes]]"
-  - "[[Rust std]]"
+- '[[Rust attributes]]'
+- '[[Rust std]]'
+summary: null
+tags: null
+type: note/library
 ---
 # Summary
 `VIEW[**{summary}**][text(renderMarkdown)]`

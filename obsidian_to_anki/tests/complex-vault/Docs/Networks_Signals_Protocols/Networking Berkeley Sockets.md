@@ -1,27 +1,35 @@
 ---
-summary: API for internet and unix domain sockets. Evolved into Network POSIX, applying to all sockets that wish to be POSIX compliant.
-type: note/item
-headings:
-  - "[[#Concepts of Note]]"
-  - "[[#Flashcards]]"
-  - "[[#Properties]]"
-similar:
-next:
-  - "[[Network POSIX]]"
-aliases: [BSD sockets, POSIX sockets, socket.h]
+aliases:
+- BSD sockets
+- POSIX sockets
+- socket.h
+anki_sync:
+  73effb15-f0fc-4960-8a55-936ffb06bde6: 1776705543077
 date created: Tuesday, August 20th 2024, 2:05:33 pm
 date modified: Tuesday, March 17th 2026, 1:42:36 pm
+headings:
+- '[[#Concepts of Note]]'
+- '[[#Flashcards]]'
+- '[[#Properties]]'
 item_of:
-  - "[[Networking socket]]"
-tags: [networking/sockets, programming/c/networking]
-template:
-template-version:
+- '[[Networking socket]]'
+next:
+- '[[Network POSIX]]'
+similar: null
+summary: API for internet and unix domain sockets. Evolved into Network POSIX, applying
+  to all sockets that wish to be POSIX compliant.
+tags:
+- networking/sockets
+- programming/c/networking
+template: null
+template-version: null
+type: note/item
 uses:
-  - "[[C netinet|Linux netinet]]"
-  - "[[Linux system_data_types]]"
-  - "[[netdb.h]]"
-  - "[[sys socket.h]]"
-  - "[[sys un.h]]"
+- '[[C netinet|Linux netinet]]'
+- '[[Linux system_data_types]]'
+- '[[netdb.h]]'
+- '[[sys socket.h]]'
+- '[[sys un.h]]'
 ---
 
 # Summary

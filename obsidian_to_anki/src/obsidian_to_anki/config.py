@@ -100,57 +100,33 @@ class Config:
 
     def load_syntax(self, config):
         """Reads and loads syntax from the config object."""
-        globals.CONFIG_DATA["NOTE_PREFIX"] = re.escape(
-            config["Syntax"]["Begin Note"]
-        )
-        globals.CONFIG_DATA["NOTE_SUFFIX"] = re.escape(
-            config["Syntax"]["End Note"]
-        )
-        globals.CONFIG_DATA["INLINE_PREFIX"] = re.escape(
-            config["Syntax"]["Begin Inline Note"]
-        )
-        globals.CONFIG_DATA["INLINE_SUFFIX"] = re.escape(
-            config["Syntax"]["End Inline Note"]
-        )
-        globals.CONFIG_DATA["DECK_LINE"] = re.escape(
-            config["Syntax"]["Target Deck Line"]
-        )
-        globals.CONFIG_DATA["TAG_LINE"] = re.escape(
-            config["Syntax"]["File Tags Line"]
-        )
-        globals.EMPTY_REGEXP = re.compile(
-            re.escape(
-                config["Syntax"]["Delete Note Line"]
-            ) + RegexNote.ID_REGEXP_STR
-        )
-        globals.CONFIG_DATA["EMPTY_REGEXP"] = re.compile(
-            re.escape(
-                config["Syntax"]["Delete Note Line"]
-            ) + RegexNote.ID_REGEXP_STR
-        )
-        globals.CONFIG_DATA["FROZEN_LINE"] = re.escape(
-            config["Syntax"]["Frozen Fields Line"]
-        )
+        def syn(key, default):
+            return re.escape(config.get("Syntax", key, fallback=default))
+
+        globals.CONFIG_DATA["NOTE_PREFIX"]  = syn("Begin Note", "START")
+        globals.CONFIG_DATA["NOTE_SUFFIX"]  = syn("End Note", "END")
+        globals.CONFIG_DATA["INLINE_PREFIX"] = syn("Begin Inline Note", "STARTI")
+        globals.CONFIG_DATA["INLINE_SUFFIX"] = syn("End Inline Note", "ENDI")
+        globals.CONFIG_DATA["DECK_LINE"]    = syn("Target Deck Line", "TARGET DECK")
+        globals.CONFIG_DATA["TAG_LINE"]     = syn("File Tags Line", "FILE TAGS")
+        globals.CONFIG_DATA["FROZEN_LINE"]  = syn("Frozen Fields Line", "FROZEN")
+        delete_line = re.escape(config.get("Syntax", "Delete Note Line", fallback="DELETE"))
+        globals.EMPTY_REGEXP = re.compile(delete_line + RegexNote.ID_REGEXP_STR)
+        globals.CONFIG_DATA["EMPTY_REGEXP"] = re.compile(delete_line + RegexNote.ID_REGEXP_STR)
 
     def load_defaults(self, config):
         """Loads default values not to do with syntax from config object."""
-        globals.NOTE_DICT_TEMPLATE["tags"] = [config["Defaults"]["Tag"]]
-        globals.NOTE_DICT_TEMPLATE["deckName"] = config["Defaults"]["Deck"]
-        globals.CONFIG_DATA["CurlyCloze"] = config.getboolean(
-            "Defaults", "CurlyCloze"
-        )
-        globals.CONFIG_DATA["Regex"] = config.getboolean(
-            "Defaults", "Regex"
-        )
-        globals.CONFIG_DATA["Comment"] = config.getboolean(
-            "Defaults", "ID Comments"
-        )
-        globals.CONFIG_DATA["Path"] = config["Defaults"]["Anki Path"]
-        globals.CONFIG_DATA["Profile"] = config["Defaults"]["Anki Profile"]
-        globals.CONFIG_DATA["Vault"] = config["Obsidian"].get("Vault path", "")
-        globals.CONFIG_DATA["Add file link"] = config.getboolean(
-            "Obsidian", "Add file link"
-        )
+        globals.NOTE_DICT_TEMPLATE["tags"] = [
+            config.get("Defaults", "Tag", fallback="Obsidian_to_Anki")
+        ]
+        globals.NOTE_DICT_TEMPLATE["deckName"] = config.get("Defaults", "Deck", fallback="Default")
+        globals.CONFIG_DATA["CurlyCloze"] = config.getboolean("Defaults", "CurlyCloze", fallback=False)
+        globals.CONFIG_DATA["Regex"]      = config.getboolean("Defaults", "Regex", fallback=False)
+        globals.CONFIG_DATA["Comment"]    = config.getboolean("Defaults", "ID Comments", fallback=True)
+        globals.CONFIG_DATA["Path"]       = config.get("Defaults", "Anki Path", fallback="")
+        globals.CONFIG_DATA["Profile"]    = config.get("Defaults", "Anki Profile", fallback="")
+        globals.CONFIG_DATA["Vault"]      = config.get("Obsidian", "Vault path", fallback="")
+        globals.CONFIG_DATA["Add file link"] = config.getboolean("Obsidian", "Add file link", fallback=False)
 
     def load_folder_decks(self, config):
         """Compile folder-to-deck regex mappings from [Folder Decks] config section."""

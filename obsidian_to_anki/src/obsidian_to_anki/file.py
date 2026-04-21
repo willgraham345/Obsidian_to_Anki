@@ -37,6 +37,8 @@ def _db_upsert_note(parsed, file_path: str, line_number: int) -> str:
     field_2 = parsed.note["fields"].get(field_names[1]) if len(field_names) > 1 else None
     images = _extract_images(parsed.note["fields"])
     existing = db.get_note_by_location(file_path, line_number, parsed.note["modelName"])
+    if existing is None:
+        existing = db.get_note_by_content(file_path, parsed.note["modelName"], field_1)
     note_uuid = existing["id"] if existing else str(uuid_module.uuid4())
     db.upsert_note(
         uuid=note_uuid,
@@ -110,6 +112,8 @@ class File:
                 if pattern.search(vault_rel):
                     self.target_deck = deck_name
                     return
+            self.target_deck = globals.UNMATCHED_DECK
+            return
         self.target_deck = globals.NOTE_DICT_TEMPLATE["deckName"]
 
     def setup_global_tags(self):
@@ -152,7 +156,8 @@ class File:
         line_no = self._line_of(note_match.start(1))
         parsed = self._apply_change_detection(parsed, file_path, line_no)
         if parsed.id is None:
-            parsed.note["tags"] += self.global_tags.split(globals.TAG_SEP)
+            if self.global_tags.strip():
+                parsed.note["tags"] += [t for t in self.global_tags.split(globals.TAG_SEP) if t]
             note_uuid = _db_upsert_note(parsed, file_path, line_no)
             if globals.NOTE_DB is not None and note_uuid is None:
                 logging.warning("DB write failed for block note at %s:%d — skipping", file_path, line_no)
@@ -180,7 +185,8 @@ class File:
         line_no = self._line_of(inline_note_match.start(1))
         parsed = self._apply_change_detection(parsed, file_path, line_no)
         if parsed.id is None:
-            parsed.note["tags"] += self.global_tags.split(globals.TAG_SEP)
+            if self.global_tags.strip():
+                parsed.note["tags"] += [t for t in self.global_tags.split(globals.TAG_SEP) if t]
             note_uuid = _db_upsert_note(parsed, file_path, line_no)
             if globals.NOTE_DB is not None and note_uuid is None:
                 logging.warning("DB write failed for inline note at %s:%d — skipping", file_path, line_no)
@@ -291,7 +297,8 @@ class File:
             file_path = self._vault_rel_path()
             line_no = self._line_of(match.start())
             parsed = self._apply_change_detection(parsed, file_path, line_no)
-            parsed.note["tags"] += self.global_tags.split(globals.TAG_SEP)
+            if self.global_tags.strip():
+                parsed.note["tags"] += [t for t in self.global_tags.split(globals.TAG_SEP) if t]
             note_uuid = _db_upsert_note(parsed, file_path, line_no)
             if globals.NOTE_DB is not None and note_uuid is None:
                 logging.warning("DB write failed for regex note at %s:%d — skipping", file_path, line_no)
@@ -311,7 +318,8 @@ class File:
             file_path = self._vault_rel_path()
             line_no = self._line_of(match.start())
             parsed = self._apply_change_detection(parsed, file_path, line_no)
-            parsed.note["tags"] += self.global_tags.split(globals.TAG_SEP)
+            if self.global_tags.strip():
+                parsed.note["tags"] += [t for t in self.global_tags.split(globals.TAG_SEP) if t]
             note_uuid = _db_upsert_note(parsed, file_path, line_no)
             if globals.NOTE_DB is not None and note_uuid is None:
                 logging.warning("DB write failed for regex note at %s:%d — skipping", file_path, line_no)

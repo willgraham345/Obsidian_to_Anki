@@ -1,26 +1,32 @@
 ---
-summary: "Smart pointer with shared ownership semantics. The managed object is destroyed when the last owning shared_ptr is destroyed or reset."
-type: note/class
-headings:
-  - "[[#Concepts of Note]]"
-  - "[[#Usage]]"
-up: "[[Cpp std memory]]"
-similar:
-  - "[[Cpp pointers]]"
-  - "[[Cpp std memory unique_ptr]]"
-  - "[[Cpp std memory weak_ptr]]"
-aliases: [Cpp shared_ptr]
+aliases:
+- Cpp shared_ptr
+anki_sync:
+  4bf1c619-8d28-42bb-89f8-0ea255151c00: 1776707755265
+  c730f260-29db-460e-ab8c-5394517a1253: 1776707755366
+  f20ac886-eb48-496a-b596-242e06933a7c: 1776707755316
 associations:
-  - "[[Cpp std memory weak_ptr]]"
+- '[[Cpp std memory weak_ptr]]'
 class_of:
-  - "[[Cpp std memory]]"
+- '[[Cpp std memory]]'
 date created: Tuesday, October 8th 2024, 12:59:59 pm
 date modified: Friday, March 20th 2026, 1:24:38 pm
+headings:
+- '[[#Concepts of Note]]'
+- '[[#Usage]]'
 implementations:
-  - "[[Cpp std memory make_shared]]"
+- '[[Cpp std memory make_shared]]'
+similar:
+- '[[Cpp pointers]]'
+- '[[Cpp std memory unique_ptr]]'
+- '[[Cpp std memory weak_ptr]]'
+summary: Smart pointer with shared ownership semantics. The managed object is destroyed
+  when the last owning shared_ptr is destroyed or reset.
 tags: []
-template:
-template-version:
+template: null
+template-version: null
+type: note/class
+up: '[[Cpp std memory]]'
 ---
 
 # Summary

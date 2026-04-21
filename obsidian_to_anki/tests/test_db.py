@@ -220,3 +220,15 @@ class TestReconcileOrphans:
         assert db.reconcile_orphans() == 2
         assert db.get_note("v-1")["anki_id"] == 9001
         assert db.get_note("v-2")["anki_id"] == 9002
+
+    def test_obsidian_link_stripped_for_plaintext_match(self, db):
+        """Vault field_1 with obsidian-link anchor matches Anki note without it."""
+        vault_f1 = (
+            'Type erasure'
+            '<br><a href="obsidian://open?vault=Work&amp;file=Docs/note.md"'
+            ' class="obsidian-link">Obsidian</a>'
+        )
+        _make_note(db, uuid="v-1", anki_id=None, field_1=vault_f1, field_2="<p>Back</p>")
+        _make_anki_note(db, anki_id=9001, field_1="Type erasure", field_2="<p>Back</p>")
+        assert db.reconcile_orphans() == 1
+        assert db.get_note("v-1")["anki_id"] == 9001

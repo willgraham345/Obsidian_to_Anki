@@ -1,18 +1,22 @@
 ---
-summary: Single responsibility, open-closed, Substitution, interface segregation, dependency inversion/injection
-type: note/concept
-headings:
-  - "[[#Concepts of Note]]"
-  - "[[#Examples]]"
-concepts:
-  - "[[DP Testing Dependency Injection]]"
+anki_sync:
+  5adb162d-3dab-4359-84f1-7a4a81ac652f: 1776707749299
 concept_of:
-  - "[[Design Patterns]]"
+- '[[Design Patterns]]'
+concepts:
+- '[[DP Testing Dependency Injection]]'
 date created: Monday, October 7th 2024, 12:11:17 pm
 date modified: Friday, March 20th 2026, 5:42:55 pm
-tags: [cs/design_pattern/solid-principles]
-template:
-template-version:
+headings:
+- '[[#Concepts of Note]]'
+- '[[#Examples]]'
+summary: Single responsibility, open-closed, Substitution, interface segregation,
+  dependency inversion/injection
+tags:
+- cs/design_pattern/solid-principles
+template: null
+template-version: null
+type: note/concept
 ---
 
 # Summary

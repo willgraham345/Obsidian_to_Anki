@@ -1,30 +1,34 @@
 ---
-summary: The "pass/fail" of a gtest test
-type: note/item
-headings:
-  - "[[#Concepts of Note]]"
-  - "[[#Usage]]"
-up: "[[Cpp GoogleTest]]"
-similar:
-  - "[[Cpp gtest Matchers]]"
-  - "[[Cpp gtest Mocking]]"
+anki_sync:
+  4c4c89e3-daa5-4be3-9d24-361662fbc077: 1776707753248
+  98bbe025-1b04-466f-b650-f9784206e5d7: 1776707753214
 associations:
-  - "[[Cpp gtest Actions]]"
-  - "[[Cpp gtest Matchers]]"
-  - "[[Cpp gtest Mocking]]"
+- '[[Cpp gtest Actions]]'
+- '[[Cpp gtest Matchers]]'
+- '[[Cpp gtest Mocking]]'
 date created: Tuesday, August 20th 2024, 2:05:33 pm
 date modified: Friday, March 20th 2026, 1:17:46 pm
+headings:
+- '[[#Concepts of Note]]'
+- '[[#Usage]]'
 item_of:
-  - "[[Cpp GoogleTest|Cpp gtest]]"
-tags: [lang/test/gtest/assertions]
-template:
-template-version:
+- '[[Cpp GoogleTest|Cpp gtest]]'
+similar:
+- '[[Cpp gtest Matchers]]'
+- '[[Cpp gtest Mocking]]'
+summary: The "pass/fail" of a gtest test
+tags:
+- lang/test/gtest/assertions
+template: null
+template-version: null
+type: note/item
+up: '[[Cpp GoogleTest]]'
 used_by:
-  - "[[Cpp gTest Mocking Workflow]]"
-  - "[[Cpp gtest TEST_P]]"
-  - "[[Cpp gtest TEST]]"
+- '[[Cpp gTest Mocking Workflow]]'
+- '[[Cpp gtest TEST_P]]'
+- '[[Cpp gtest TEST]]'
 uses:
-  - "[[Cpp gtest SCOPED_TRACE]]"
+- '[[Cpp gtest SCOPED_TRACE]]'
 ---
 
 # Summary

@@ -33,6 +33,7 @@ from obsidian_to_anki import globals          # noqa: E402
 from obsidian_to_anki.anki_connect import AnkiConnect  # noqa: E402
 from obsidian_to_anki.config import Config    # noqa: E402
 from obsidian_to_anki.db import NoteDB        # noqa: E402
+from obsidian_to_anki.utils import strip_html # noqa: E402
 
 _DEFAULT_MANIFEST = "anki_diff.json"
 
@@ -62,7 +63,6 @@ def _init() -> NoteDB:
     custom = globals.CONFIG_DATA.get("CUSTOM_REGEXPS", {})
     fields_dict: dict[str, list[str]] = {}
     for note_type, pattern in custom.items():
-        import re
         if note_type in _KNOWN_FIELDS:
             fields_dict[note_type] = _KNOWN_FIELDS[note_type]
         elif pattern:
@@ -93,6 +93,62 @@ def _resolve_model_fields(ac: AnkiConnect, manifest: dict) -> None:
                 globals.FIELDS_DICT[nt] = fields
         except Exception:
             pass  # leave existing fallback in place
+
+
+def _abs_file_path(fp: str) -> str:
+    """Return absolute path for a vault-relative or already-absolute file path."""
+    if os.path.isabs(fp):
+        return fp
+    vault = globals.CONFIG_DATA.get("Vault", "")
+    return os.path.join(vault, fp) if vault else fp
+
+
+def _find_existing_anki_note(
+    db: NoteDB, field_1: str | None, note_type: str
+) -> int | None:
+    """Look up anki_id from the local anki_notes snapshot for matching note.
+
+    Tries exact HTML match first, then plain-text fallback (Anki may
+    normalise HTML on storage). Returns anki_id when exactly one candidate
+    found; None if zero or ambiguous.
+    """
+    if field_1 is None:
+        return None
+
+    # Pass 1: exact HTML match
+    rows = db._conn.execute(
+        "SELECT anki_id FROM anki_notes WHERE note_type = ? AND field_1 = ?",
+        (note_type, field_1),
+    ).fetchall()
+    if rows:
+        # Multiple identical entries in Anki snapshot (Anki duplicates) — pick
+        # the one not already claimed by another vault note, else first available.
+        claimed = {
+            r["anki_id"] for r in db._conn.execute(
+                "SELECT anki_id FROM notes WHERE anki_id IS NOT NULL"
+            ).fetchall()
+        }
+        unclaimed = [r["anki_id"] for r in rows if r["anki_id"] not in claimed]
+        return unclaimed[0] if unclaimed else rows[0]["anki_id"]
+
+    # Pass 2: plaintext fallback (Anki may normalise HTML on storage)
+    plain = strip_html(field_1)
+    if not plain:
+        return None
+    candidates = db._conn.execute(
+        "SELECT anki_id, field_1 FROM anki_notes WHERE note_type = ?",
+        (note_type,),
+    ).fetchall()
+    matches = [r["anki_id"] for r in candidates if strip_html(r["field_1"]) == plain]
+    if not matches:
+        return None
+    claimed = {
+        r["anki_id"] for r in db._conn.execute(
+            "SELECT anki_id FROM notes WHERE anki_id IS NOT NULL"
+        ).fetchall()
+    }
+    unclaimed = [aid for aid in matches if aid not in claimed]
+    return unclaimed[0] if unclaimed else matches[0]
 
 
 def _field_map(note_type: str, field_1: str | None, field_2: str | None) -> dict:
@@ -170,8 +226,8 @@ def _ensure_decks(ac: AnkiConnect, manifest: dict) -> None:
             print(f"[warn] createDeck {deck!r}: {exc}")
 
 
-def execute(manifest: dict, ac: AnkiConnect, db: NoteDB) -> dict:
-    results = {"added": 0, "updated": 0, "re_added": 0, "deleted": 0, "errors": []}
+def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = False) -> dict:
+    results = {"added": 0, "updated": 0, "re_added": 0, "reconciled": 0, "deleted": 0, "errors": []}
     _ensure_decks(ac, manifest)
 
     # file_path → {uuid: anki_id} for frontmatter writes
@@ -190,7 +246,7 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB) -> dict:
 
     for entry in add_entries:
         note_type = entry.get("note_type", "")
-        deck_name = entry.get("deck_name") or globals.CONFIG_DATA.get("Deck", "Default")
+        deck_name = entry.get("deck_name") or globals.UNMATCHED_DECK
         fields    = _field_map(note_type, entry.get("field_1"), entry.get("field_2"))
         tags      = entry.get("tags") or []
         try:
@@ -211,6 +267,15 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB) -> dict:
             else:
                 results["added"] += 1
         except Exception as exc:
+            if "duplicate" in str(exc).lower() and entry.get("uuid"):
+                existing_id = _find_existing_anki_note(db, entry.get("field_1"), note_type)
+                if existing_id:
+                    db.mark_synced(entry["uuid"], existing_id)
+                    fp = entry.get("file_path")
+                    if fp:
+                        fm_updates.setdefault(fp, {})[entry["uuid"]] = existing_id
+                    results["reconciled"] += 1
+                    continue
             label = (entry.get("field_1") or "")[:40]
             results["errors"].append(f"addNote ({label!r}): {exc}")
 
@@ -239,7 +304,7 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB) -> dict:
 
     orphan_ids = [e["anki_id"] for e in manifest.get("orphan", []) if e.get("anki_id")]
     if orphan_ids:
-        if results.get("_delete_orphans"):
+        if delete_orphans:
             try:
                 ac.invoke("deleteNotes", notes=orphan_ids)
                 results["deleted"] += len(orphan_ids)
@@ -248,17 +313,11 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB) -> dict:
         else:
             print(f"[warn] Skipped deletion of {len(orphan_ids)} orphan(s) — pass --delete-orphans to enable")
 
-    # Write anki_sync frontmatter to affected vault files
-    fm_errors = 0
-    for fp, sync_map in fm_updates.items():
-        try:
-            _write_frontmatter_sync(fp, sync_map)
-        except Exception as exc:
-            results["errors"].append(f"frontmatter ({fp}): {exc}")
-            fm_errors += 1
-    if fm_updates:
-        written = len(fm_updates) - fm_errors
-        print(f"[fm] Wrote anki_sync frontmatter to {written}/{len(fm_updates)} files")
+    # NOTE: frontmatter writes disabled — writing anki_sync to vault files
+    # shifts note line numbers, causing UUID location-lookup failures on next
+    # scan and creating a not_in_anki oscillation loop.
+    # The DB is the authoritative source; frontmatter recovery can be re-enabled
+    # once the line-number drift issue is resolved.
 
     return results
 
@@ -341,12 +400,12 @@ def main() -> None:
 
     db = _init()
     _resolve_model_fields(ac, manifest)
-    manifest["_delete_orphans"] = args.delete_orphans
-    results = execute(manifest, ac, db)
+    results = execute(manifest, ac, db, delete_orphans=args.delete_orphans)
     db.close()
 
     print(f"\nDone — added={results['added']}, updated={results['updated']}, "
-          f"re_added={results['re_added']}, deleted={results['deleted']}")
+          f"re_added={results['re_added']}, reconciled={results['reconciled']}, "
+          f"deleted={results['deleted']}")
     if results["errors"]:
         print(f"\nErrors ({len(results['errors'])}):")
         for err in results["errors"]:

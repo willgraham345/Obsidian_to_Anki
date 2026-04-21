@@ -2,11 +2,29 @@
 
 import os
 import base64
+import re
 import time
 import socket
 import subprocess
 
 from . import globals
+
+_OBSIDIAN_LINK_RE = re.compile(
+    r'<a\b[^>]*class="obsidian-link"[^>]*>.*?</a>',
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def strip_html(html: str | None) -> str | None:
+    """Strip HTML tags for field comparison. Returns None if input is None.
+
+    Removes obsidian-link anchors before stripping remaining tags so vault
+    field values match Anki's stored versions.
+    """
+    if html is None:
+        return None
+    text = _OBSIDIAN_LINK_RE.sub("", html)
+    return re.sub(r"<[^>]+>", "", text).strip()
 
 def has_clozes(text):
     """Checks whether text actually has cloze deletions."""

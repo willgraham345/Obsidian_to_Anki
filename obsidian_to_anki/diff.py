@@ -83,23 +83,25 @@ def _lookup_uuid(db: NoteDB, row: dict) -> str | None:
 # ── Core: build diff buckets ───────────────────────────────────────────────────
 
 def _deck_from_path(file_path: str | None, vault_path: str) -> str:
-    """Derive Anki deck from the file's folder hierarchy relative to vault root.
+    """Resolve Anki deck for a note file.
 
-    e.g. <vault>/Docs/Python/notes.md  →  Docs::Python
-         <vault>/Python/notes.md        →  Python
-         <vault>/notes.md               →  Default
+    Priority:
+      1. [Folder Decks] regex patterns matched against vault-relative path
+      2. Fallback: globals.UNMATCHED_DECK
+
+    file_path is stored vault-relative in the DB (e.g. Docs/Python/notes.md).
     """
     if not file_path:
-        return globals.CONFIG_DATA.get("Deck", "Default")
-    try:
-        rel = os.path.relpath(file_path, vault_path)
-    except ValueError:
-        return globals.CONFIG_DATA.get("Deck", "Default")
-    parts = rel.replace("\\", "/").split("/")[:-1]  # drop filename
-    parts = [p for p in parts if p and p != "."]
-    if not parts:
-        return globals.CONFIG_DATA.get("Deck", "Default")
-    return "::".join(parts)
+        return globals.UNMATCHED_DECK
+
+    norm = file_path.replace("\\", "/")
+
+    folder_decks = globals.CONFIG_DATA.get("FOLDER_DECKS", [])
+    for pattern, deck_name in folder_decks:
+        if pattern.search(norm):
+            return deck_name
+
+    return globals.UNMATCHED_DECK
 
 
 def build_diff(db: NoteDB, vault_path: str) -> dict:
@@ -333,9 +335,13 @@ def main() -> None:
 
     db = _init()
 
-    vault_path = os.path.abspath(
-        args.vault_path or globals.CONFIG_DATA.get("Vault path") or _DEFAULT_VAULT
-    )
+    _vault_raw = args.vault_path or globals.CONFIG_DATA.get("Vault")
+    if not _vault_raw:
+        parser.error(
+            "No vault path provided. Either pass vault_path as an argument "
+            "or set 'Vault path' in the [Obsidian] section of obsidian_to_anki_config.ini."
+        )
+    vault_path = os.path.abspath(_vault_raw)
 
     vault_count = db._conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
     anki_count  = db._conn.execute("SELECT COUNT(*) FROM anki_notes").fetchone()[0]

@@ -1,16 +1,20 @@
 ---
-summary: The order in which bytes within a word of digital data are transmitted or addressed in computer memory.
-type: note/concept
-headings:
-  - "[[#Concepts of Note]]"
-  - "[[#Media]]"
+anki_sync:
+  f2f8531e-5563-4f2f-a410-132287a9bf82: 1776705540590
 concept_of:
-  - "[[CS Messaging and Serialization]]"
+- '[[CS Messaging and Serialization]]'
 date created: Monday, June 2nd 2025, 10:23:20 am
 date modified: Wednesday, March 4th 2026, 3:03:32 pm
-tags: [cs/networking]
-template:
-template-version:
+headings:
+- '[[#Concepts of Note]]'
+- '[[#Media]]'
+summary: The order in which bytes within a word of digital data are transmitted or
+  addressed in computer memory.
+tags:
+- cs/networking
+template: null
+template-version: null
+type: note/concept
 ---
 
 # Summary

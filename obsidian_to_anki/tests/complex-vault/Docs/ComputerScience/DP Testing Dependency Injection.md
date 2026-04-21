@@ -1,20 +1,25 @@
 ---
-summary: An object or function receives other objects/functions it requires rather than creating them internally. Tight coupling between code is bad and inflexible. We want to avoid hard-coded dependencies.
-type: note/concept
-headings:
-  - "[[#Concepts of Note]]"
-  - "[[#Concepts of Note]]"
-  - "[[#Usage]]"
-similar:
-  - "[[DP Testing Mocking]]"
+anki_sync:
+  3669c949-2904-42e1-99ba-9c924f40025e: 1776707749414
+  e0064a34-0064-4e8e-9d42-32bc9b7942c7: 1776707749400
 concept_of:
-  - "[[DP Principles]]"
+- '[[DP Principles]]'
 date created: Wednesday, November 6th 2024, 9:29:18 am
 date modified: Friday, March 20th 2026, 5:40:42 pm
-implementations:
+headings:
+- '[[#Concepts of Note]]'
+- '[[#Concepts of Note]]'
+- '[[#Usage]]'
+implementations: null
+similar:
+- '[[DP Testing Mocking]]'
+summary: An object or function receives other objects/functions it requires rather
+  than creating them internally. Tight coupling between code is bad and inflexible.
+  We want to avoid hard-coded dependencies.
 tags: []
-template: "[[base_note_template]]"
+template: '[[base_note_template]]'
 template-version: 1.0.2
+type: note/concept
 ---
 
 # Summary
