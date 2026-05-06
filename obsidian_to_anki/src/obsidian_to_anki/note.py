@@ -67,7 +67,7 @@ class Note:
         }
         return {key: value.strip() for key, value in fields.items()}
 
-    def parse(self, deck, url=None, frozen_fields_dict=None):
+    def parse(self, deck, url=None, frozen_fields_dict=None, file_stem=None):
         """Get a properly formatted dictionary of the note."""
         template = globals.NOTE_DICT_TEMPLATE.copy()
         template["modelName"] = self.note_type
@@ -78,6 +78,8 @@ class Note:
             url
         ]):
             FormatConverter.format_note_with_url(template, url)
+        if file_stem and globals.CONFIG_DATA.get("FILE_STEM_NOTES", {}).get(self.note_type):
+            FormatConverter.format_note_with_file_stem(template, file_stem)
         if frozen_fields_dict:
             FormatConverter.format_note_with_frozen_fields(
                 template, frozen_fields_dict
@@ -135,7 +137,7 @@ class InlineNote:
             for key, value in fields.items()
         }
 
-    def parse(self, deck, url=None, frozen_fields_dict=None):
+    def parse(self, deck, url=None, frozen_fields_dict=None, file_stem=None):
         """Get a properly formatted dictionary of the note."""
         template = globals.NOTE_DICT_TEMPLATE.copy()
         template["modelName"] = self.note_type
@@ -146,6 +148,8 @@ class InlineNote:
             url
         ]):
             FormatConverter.format_note_with_url(template, url)
+        if file_stem and globals.CONFIG_DATA.get("FILE_STEM_NOTES", {}).get(self.note_type):
+            FormatConverter.format_note_with_file_stem(template, file_stem)
         if frozen_fields_dict:
             FormatConverter.format_note_with_frozen_fields(template, frozen_fields_dict)
         template["tags"] = template["tags"] + self.tags
@@ -194,7 +198,7 @@ class RegexNote:
         }
         return {key: value.strip() for key, value in fields.items()}
 
-    def parse(self, deck, url=None, frozen_fields_dict=None):
+    def parse(self, deck, url=None, frozen_fields_dict=None, file_stem=None):
         """Get a properly formatted dictionary of the note."""
         template = globals.NOTE_DICT_TEMPLATE.copy()
         template["modelName"] = self.note_type
@@ -205,6 +209,8 @@ class RegexNote:
             url
         ]):
             FormatConverter.format_note_with_url(template, url)
+        if file_stem and globals.CONFIG_DATA.get("FILE_STEM_NOTES", {}).get(self.note_type):
+            FormatConverter.format_note_with_file_stem(template, file_stem)
         if frozen_fields_dict:
             FormatConverter.format_note_with_frozen_fields(
                 template, frozen_fields_dict

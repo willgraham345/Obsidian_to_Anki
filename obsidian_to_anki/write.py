@@ -279,7 +279,11 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
             label = (entry.get("field_1") or "")[:40]
             results["errors"].append(f"addNote ({label!r}): {exc}")
 
-    for entry in manifest.get("update", []):
+    update_entries = manifest.get("update", [])
+    update_total = len(update_entries)
+    for i, entry in enumerate(update_entries, 1):
+        if i % 25 == 0 or i == update_total:
+            print(f"  update {i}/{update_total}…")
         anki_id = entry.get("anki_id")
         if not anki_id:
             continue

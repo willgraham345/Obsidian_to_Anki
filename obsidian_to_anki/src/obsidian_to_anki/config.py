@@ -93,6 +93,9 @@ class Config:
         config.setdefault("Custom Regexps", dict())
         for note in note_types:
             config["Custom Regexps"].setdefault(note, "")
+        config.setdefault("File Stem Notes", dict())
+        for note in note_types:
+            config["File Stem Notes"].setdefault(note, "False")
         self.setup_syntax(config)
         self.setup_defaults(config)
         with open(self.CONFIG_PATH, "w", encoding='utf_8') as configfile:
@@ -149,4 +152,8 @@ class Config:
         self.load_defaults(config)
         self.load_folder_decks(config)
         globals.CONFIG_DATA["CUSTOM_REGEXPS"] = config["Custom Regexps"]
+        globals.CONFIG_DATA["FILE_STEM_NOTES"] = {
+            k: config.getboolean("File Stem Notes", k, fallback=False)
+            for k in config.options("File Stem Notes")
+        } if "File Stem Notes" in config else {}
         print("Loaded successfully!")

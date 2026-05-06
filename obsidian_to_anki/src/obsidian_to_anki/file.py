@@ -62,6 +62,7 @@ class File:
         """Perform initial file reading and attribute setting."""
         self.filename = filepath
         self.path = os.path.abspath(filepath)
+        self.file_stem = os.path.splitext(os.path.basename(self.path))[0]
         if globals.CONFIG_DATA["Vault"] and globals.VAULT_PATH_REGEXP.search(self.path):
             vault_rel = globals.VAULT_PATH_REGEXP.search(self.path).group(1).replace("\\", "/")
             vault_name = globals.CONFIG_DATA.get("Vault name") or os.path.basename(globals.CONFIG_DATA["Vault"])
@@ -151,7 +152,8 @@ class File:
         parsed = Note(note).parse(
             self.target_deck,
             url=self.url,
-            frozen_fields_dict=self.frozen_fields_dict
+            frozen_fields_dict=self.frozen_fields_dict,
+            file_stem=self.file_stem
         )
         file_path = self._vault_rel_path()
         line_no = self._line_of(note_match.start(1))
@@ -180,7 +182,8 @@ class File:
         parsed = InlineNote(note).parse(
             self.target_deck,
             url=self.url,
-            frozen_fields_dict=self.frozen_fields_dict
+            frozen_fields_dict=self.frozen_fields_dict,
+            file_stem=self.file_stem
         )
         file_path = self._vault_rel_path()
         line_no = self._line_of(inline_note_match.start(1))
@@ -267,7 +270,8 @@ class File:
             parsed = RegexNote(match, note_type, tags=True, id=True).parse(
                 self.target_deck,
                 url=self.url,
-                frozen_fields_dict=self.frozen_fields_dict
+                frozen_fields_dict=self.frozen_fields_dict,
+                file_stem=self.file_stem
             )
             if parsed.id not in globals.EXISTING_IDS:
                 logging.warning("Stale ID %d in %s was not stripped — skipping note", parsed.id, self.filename)
@@ -279,7 +283,8 @@ class File:
             parsed = RegexNote(match, note_type, tags=False, id=True).parse(
                 self.target_deck,
                 url=self.url,
-                frozen_fields_dict=self.frozen_fields_dict
+                frozen_fields_dict=self.frozen_fields_dict,
+                file_stem=self.file_stem
             )
             if parsed.id not in globals.EXISTING_IDS:
                 logging.warning("Stale ID %d in %s was not stripped — skipping note", parsed.id, self.filename)
@@ -291,7 +296,8 @@ class File:
             parsed = RegexNote(match, note_type, tags=True, id=False).parse(
                 self.target_deck,
                 url=self.url,
-                frozen_fields_dict=self.frozen_fields_dict
+                frozen_fields_dict=self.frozen_fields_dict,
+                file_stem=self.file_stem
             )
             if parsed == 1:
                 continue
@@ -312,7 +318,8 @@ class File:
             parsed = RegexNote(match, note_type, tags=False, id=False).parse(
                 self.target_deck,
                 url=self.url,
-                frozen_fields_dict=self.frozen_fields_dict
+                frozen_fields_dict=self.frozen_fields_dict,
+                file_stem=self.file_stem
             )
             if parsed == 1:
                 continue

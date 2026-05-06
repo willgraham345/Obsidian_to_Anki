@@ -51,7 +51,9 @@ class AnkiConnect:
             self.request(action, **params)
         ).encode('utf-8')
         response = json.load(urllib.request.urlopen(
-            urllib.request.Request(f'http://{self.host}:{self.port}', requestJson)))
+            urllib.request.Request(f'http://{self.host}:{self.port}', requestJson),
+            timeout=10,
+        ))
         return self.parse(response)
 
     def parse(self, response: dict) -> dict:

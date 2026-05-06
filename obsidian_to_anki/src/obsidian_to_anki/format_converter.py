@@ -58,6 +58,12 @@ class FormatConverter:
             break  # So only does first field
 
     @staticmethod
+    def format_note_with_file_stem(note, file_stem):
+        for key in note["fields"]:
+            note["fields"][key] += "<br><b>" + file_stem + "</b>"
+            break  # First field only
+
+    @staticmethod
     def format_note_with_frozen_fields(note, frozen_fields_dict):
         for field in note["fields"].keys():
             note["fields"][field] += frozen_fields_dict[
