@@ -1,10 +1,10 @@
 # obsidian-to-anki
 
-A CLI tool for syncing flashcard-style patterns from Obsidian markdown notes to Anki via the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) addon.
+CLI tool that syncs flashcard patterns from Obsidian markdown to Anki via [AnkiConnect](https://ankiweb.net/shared/info/2055492159).
 
 ## Prerequisites
 
-- [Anki](https://apps.ankiweb.net/) running with the AnkiConnect addon installed (default port: 8765)
+- Anki running with AnkiConnect addon (port 8765)
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 
@@ -15,114 +15,124 @@ cd obsidian_to_anki
 uv sync
 ```
 
-## First Run (generate config)
+## Workflow
 
-Run the CLI with no arguments to generate the default config file:
+Three scripts run in sequence. All run from `obsidian_to_anki/`.
 
 ```bash
-uv run obs2anki
+uv run python scan.py --all          # 1. snapshot vault + Anki into local DB
+uv run python diff.py                # 2. compare → produce anki_diff.json + anki_diff.md
+# review anki_diff.md, then:
+uv run python write.py --execute     # 3. push changes to Anki
 ```
 
-This creates `obsidian_to_anki_config.ini` in your current directory with sections `[Syntax]`, `[Defaults]`, `[Obsidian]`, and `[Custom Regexps]`.
+### scan.py
 
-## Configure Custom Regex Patterns
+Populates the local SQLite DB. With no flags, `--vault` is implied.
 
-Open `obsidian_to_anki_config.ini` and make the following changes.
+| Flag | Description |
+|------|-------------|
+| `vault_path` | Path to vault. Falls back to `Vault path` in config. |
+| `--vault` | Scan vault markdown files → populate `notes` table. |
+| `--anki` | Query AnkiConnect → populate `anki_notes` snapshot table. Requires Anki running. |
+| `--all` | Run `--vault` + `--anki` together. |
+| `--prune-stale` | Remove DB notes whose vault file no longer exists (cleanup after deletes/moves). |
 
-### 1. Enable regex mode
+### diff.py
 
-In `[Defaults]`, set:
+Compares vault notes against the Anki snapshot. Produces `anki_diff.json` (consumed by `write.py`) and `anki_diff.md` (human-readable review). Requires both `--vault` and `--anki` scans to have run.
 
-```ini
-[Defaults]
-Regex = True
-```
+| Flag | Description |
+|------|-------------|
+| `vault_path` | Path to vault. Falls back to config. |
+| `--output-json FILE` | Override JSON manifest path (default: `anki_diff.json`). |
+| `--output-md FILE` | Override markdown preview path (default: `anki_diff.md`). |
 
-Without this, custom regex patterns are silently ignored.
+### write.py
 
-### 2. Add your patterns to `[Custom Regexps]`
+Executes changes from `anki_diff.json` against Anki. Default is dry-run.
 
-Each key must match an Anki note type name **exactly**. Capture groups map positionally to note fields (first group → first field, second group → second field).
+| Flag | Description |
+|------|-------------|
+| `--manifest FILE` | Override manifest path (default: `anki_diff.json`). |
+| `--execute` | Actually write to Anki. Without this, prints what would happen. |
+| `--delete-orphans` | Delete Anki notes flagged as orphans in the manifest. Requires `--execute`. |
+
+## Config (`obsidian_to_anki_config.ini`)
+
+Generated on first run of any script. Key sections:
+
+### `[Custom Regexps]`
+
+Each key is an Anki note type name (exact match). Capture groups map positionally to note fields.
 
 ```ini
 [Custom Regexps]
-Basic = ^󰠗 (.+?) ;; (.+)
-Term = ^󰙎 (.+?) ;;; (.+)
-Code = ^`(.+?)` ;;; (.+)
+Code = ^ (.*?) ;;; (.*?)
+Term = ^󰙎 (.*?) ;; (.*?)
+DuoTerm = ^󰙎 (.*?) ;;; (.*?)
+Quiz = ^󰠗 (.*?) ;; (.*?)
 ```
 
-| Config key | Anki note type | Fields | Pattern matches |
-|------------|---------------|--------|-----------------|
-| `Basic` | Basic (built-in) | Front / Back | `󰠗 question ;; answer` |
-| `Term` | Term (create it) | Term / Definition | `󰙎 term ;;; description` |
-| `Code` | Code (create it) | Snippet / Description | `` `code snippet` ;;; description `` |
+### `[File Stem Notes]`
 
-> **Note:** The icons before `question` and `term` are Nerd Font glyphs (U+F0297 and U+F0257). They require a Nerd Font to display correctly, but the patterns will still match as long as the characters are present in the file.
+Note types listed here get the source filename appended to `field_1` as `<br><b>Filename</b>`. Useful for notes that appear in many files (e.g. `Code`, `Cmd`).
 
-### 3. Create the Term and Code note types in Anki
+```ini
+[File Stem Notes]
+Code = True
+Cmd = True
+```
 
-For `Basic`, Anki's built-in note type works out of the box. For `Term` and `Code`, create them manually:
+### `[Folder Decks]`
 
-1. In Anki, go to **Tools → Manage Note Types → Add**
-2. Choose "Add: Basic" as the starting point
-3. Name it `Term`, then edit its fields to be `Term` and `Definition` (in that order)
-4. Repeat for `Code` with fields `Snippet` and `Description`
+Maps vault folder glob patterns to Anki deck names.
 
-Field order must match capture group order in your regex.
+```ini
+[Folder Decks]
+Docs/Programming_and_OS/Python/* = Python
+Docs/ComputerScience.* = ComputerScience
+```
+
+### `[Obsidian]`
+
+| Key | Description |
+|-----|-------------|
+| `Vault path` | Absolute path to vault root. |
+| `Vault name` | Name used in Obsidian deep-links. |
+| `Add file link` | Append an `obsidian://` link to `field_1`. |
+
+### `[Defaults]`
+
+| Key | Description |
+|-----|-------------|
+| `Regex` | Must be `True` to use `[Custom Regexps]`. |
+| `Anki Path` | Path to Anki executable (used for auto-launch). |
+| `Anki Profile` | Anki profile name to open. |
 
 ## Example Vault Note
 
 ```markdown
-# Biology Chapter 3
+󰙎 Polymorphism ;; Ability of different objects to respond to the same interface differently
 
-These are my study notes for the chapter.
-
-󰠗 What is mitosis? ;; Cell division producing two genetically identical daughter cells
-
-The cell cycle has several phases worth memorizing.
-
-󰙎 Interphase ;;; The period between cell divisions; includes G1, S, and G2 phases
-
-Here's a useful Python snippet for data analysis:
-
-`df.groupby('col').agg({'val': 'sum'})` ;;; Group a DataFrame by a column and sum another
+󰠗 What is a heap? ;; Dynamic memory region; allocated at runtime via malloc/new
 ```
 
-## Run the Sync
+## Legacy CLI (`obs2anki`)
 
-Sync a single file:
+The original single-file sync CLI is still available:
 
 ```bash
-uv run obs2anki /path/to/note.md
+uv run obs2anki /path/to/file.md        # sync single file
+uv run obs2anki /path/to/vault -R       # sync vault recursively
 ```
-
-Sync an entire vault recursively:
-
-```bash
-uv run obs2anki /path/to/vault -R
-```
-
-## How It Works
-
-1. `obs2anki` scans each `.md` file line by line
-2. Lines matching a `[Custom Regexps]` pattern are captured — capture groups populate note fields in order
-3. Notes are sent to Anki via AnkiConnect in two stages: new notes are added, then existing notes are updated
-4. File hashes are tracked so unchanged files are skipped on re-runs
-
-## CLI Flags
 
 | Flag | Description |
 |------|-------------|
-| `-f` / `--file` | Target a single file |
-| `-d` / `--dir` | Target a directory |
-| `-r` / `--regex` | Override regex mode on/off |
-| `-R` / `--recurse` | Recurse into subdirectories |
-| `-u` / `--update` | Force update even if file hash unchanged |
-| `-c` / `--config` | Path to a custom config file |
-| `-m` / `--mediaupdate` | Re-sync media attachments |
-
-## Verification
-
-1. Add test lines to a `.md` file using each pattern above
-2. Run `uv run obs2anki path/to/test.md`
-3. Open Anki and confirm the cards appeared in the correct deck with the correct fields populated
+| `-f` / `--file` | Target a single file. |
+| `-d` / `--dir` | Target a directory. |
+| `-R` / `--recurse` | Recurse into subdirectories. |
+| `-r` / `--regex` | Override regex mode on/off. |
+| `-u` / `--update` | Force update even if file hash unchanged. |
+| `-c` / `--config` | Path to custom config file. |
+| `-m` / `--mediaupdate` | Re-sync media attachments. |
