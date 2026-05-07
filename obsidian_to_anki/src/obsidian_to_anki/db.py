@@ -84,7 +84,11 @@ class NoteDB:
                 CASE
                     WHEN v.anki_id IS NULL                          THEN 'not_in_anki'
                     WHEN a.anki_id IS NULL                          THEN 'stale_id'
-                    WHEN v.field_1 IS NOT a.field_1
+                    WHEN (SELECT COUNT(*) FROM notes _n WHERE _n.anki_id = v.anki_id) > 1
+                                                                    THEN 'synced'
+                    WHEN CASE WHEN INSTR(v.field_1,'<br><b>')>0 THEN SUBSTR(v.field_1,1,INSTR(v.field_1,'<br><b>')-1) ELSE v.field_1 END
+                         IS NOT
+                         CASE WHEN INSTR(a.field_1,'<br><b>')>0 THEN SUBSTR(a.field_1,1,INSTR(a.field_1,'<br><b>')-1) ELSE a.field_1 END
                       OR v.field_2 IS NOT a.field_2                THEN 'modified'
                     ELSE 'synced'
                 END AS status
@@ -208,6 +212,13 @@ class NoteDB:
         self._conn.execute(
             "UPDATE notes SET anki_id = ?, updated_at = ? WHERE id = ?",
             (anki_id, _now(), uuid),
+        )
+        self._conn.commit()
+
+    def update_anki_note_fields(self, anki_id: int, field_1: str | None, field_2: str | None) -> None:
+        self._conn.execute(
+            "UPDATE anki_notes SET field_1 = ?, field_2 = ?, synced_at = ? WHERE anki_id = ?",
+            (field_1, field_2, _now(), anki_id),
         )
         self._conn.commit()
 

@@ -291,6 +291,7 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
         fields    = _field_map(note_type, entry.get("field_1"), entry.get("field_2"))
         try:
             ac.invoke("updateNoteFields", note={"id": anki_id, "fields": fields})
+            db.update_anki_note_fields(anki_id, entry.get("field_1"), entry.get("field_2"))
             # Move to correct deck if it has changed
             deck_name = entry.get("deck_name")
             if deck_name:
