@@ -247,6 +247,36 @@ class NoteDB:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def mark_to_modify(self, uuid: str) -> None:
+        """Mark a note as explicitly approved for Anki update."""
+        self._conn.execute(
+            "UPDATE notes SET state = 'to_modify', updated_at = ? WHERE id = ?",
+            (_now(), uuid),
+        )
+        self._conn.commit()
+
+    def revert_note_to_anki(self, uuid: str) -> bool:
+        """Overwrite vault note fields in DB with current Anki snapshot.
+
+        Returns True when a matching Anki note was found and applied.
+        After this call the note comparison view will show the note as 'synced'.
+        """
+        note = self.get_note(uuid)
+        if not note or not note.get("anki_id"):
+            return False
+        anki = self._conn.execute(
+            "SELECT field_1, field_2 FROM anki_notes WHERE anki_id = ?",
+            (note["anki_id"],),
+        ).fetchone()
+        if not anki:
+            return False
+        self._conn.execute(
+            "UPDATE notes SET field_1 = ?, field_2 = ?, updated_at = ? WHERE id = ?",
+            (anki["field_1"], anki["field_2"], _now(), uuid),
+        )
+        self._conn.commit()
+        return True
+
     def update_anki_note_fields(self, anki_id: int, field_1: str | None, field_2: str | None) -> None:
         self._conn.execute(
             "UPDATE anki_notes SET field_1 = ?, field_2 = ?, synced_at = ? WHERE anki_id = ?",

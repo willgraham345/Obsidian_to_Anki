@@ -321,6 +321,53 @@ class TestModifyDeck:
         assert target[0]["status"] == "modified"
 
 
+class TestToModifyState:
+
+    def test_mark_to_modify_sets_state(self, db):
+        _make_note(db, uuid="tm-1")
+        db.mark_to_modify("tm-1")
+        assert db.get_note("tm-1")["state"] == "to_modify"
+
+    def test_mark_to_modify_updates_timestamp(self, db):
+        _make_note(db, uuid="tm-2")
+        before = db.get_note("tm-2")["updated_at"]
+        db.mark_to_modify("tm-2")
+        assert db.get_note("tm-2")["updated_at"] >= before
+
+    def test_revert_note_to_anki_copies_fields(self, db):
+        _make_note(db, uuid="rv-1", anki_id=7001,
+                   field_1="<p>VaultFront</p>", field_2="<p>VaultBack</p>")
+        _make_anki_note(db, anki_id=7001,
+                        field_1="<p>AnkiFront</p>", field_2="<p>AnkiBack</p>")
+        result = db.revert_note_to_anki("rv-1")
+        assert result is True
+        note = db.get_note("rv-1")
+        assert note["field_1"] == "<p>AnkiFront</p>"
+        assert note["field_2"] == "<p>AnkiBack</p>"
+
+    def test_revert_note_to_anki_no_anki_id_returns_false(self, db):
+        _make_note(db, uuid="rv-2", anki_id=None)
+        assert db.revert_note_to_anki("rv-2") is False
+
+    def test_revert_note_to_anki_no_snapshot_returns_false(self, db):
+        _make_note(db, uuid="rv-3", anki_id=7003)
+        # No matching row in anki_notes — anki snapshot not populated
+        assert db.revert_note_to_anki("rv-3") is False
+
+    def test_revert_makes_note_synced_in_view(self, db):
+        """After revert, note_comparison status should be 'synced'."""
+        _make_note(db, uuid="rv-4", anki_id=7004,
+                   field_1="<p>VaultFront</p>", field_2="<p>VaultBack</p>",
+                   deck_name="Default")
+        _make_anki_note(db, anki_id=7004,
+                        field_1="<p>AnkiFront</p>", field_2="<p>AnkiBack</p>",
+                        deck_name="Default")
+        db.revert_note_to_anki("rv-4")
+        rows = db.get_comparison_rows(exclude_synced=False)
+        target = [r for r in rows if r["anki_id"] == 7004]
+        assert target[0]["status"] == "synced"
+
+
 class TestAtomicId:
 
     def test_set_and_get_file_atomic_id(self, db):

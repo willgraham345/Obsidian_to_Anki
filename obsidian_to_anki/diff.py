@@ -185,6 +185,77 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
     return diff
 
 
+def resolve_modifications(diff: dict, db: NoteDB) -> dict:
+    """Interactively resolve each modified note.
+
+    For each entry in diff["update"], shows a vault-vs-Anki field diff and
+    prompts the user:
+      [u]pdate  — push vault version to Anki  (marks state='to_modify' in DB)
+      [s]kip    — leave for later             (removed from this diff run)
+      [r]evert  — accept Anki version         (DB updated to match Anki; note synced)
+
+    Returns a new diff dict with only the [u]pdate-approved entries remaining
+    in the "update" bucket.
+    """
+    updates = diff.get("update", [])
+    if not updates:
+        print("No modified notes to resolve.")
+        return diff
+
+    approved: list[dict] = []
+    total = len(updates)
+
+    for i, entry in enumerate(updates, 1):
+        uuid      = entry.get("uuid")
+        anki_id   = entry.get("anki_id")
+        note_type = entry.get("note_type") or "Unknown"
+        fp        = entry.get("file_path") or ""
+
+        vault_f1 = _strip_html(entry.get("field_1"))
+        vault_f2 = _strip_html(entry.get("field_2"))
+
+        # Look up Anki fields from DB snapshot
+        anki_f1 = anki_f2 = ""
+        if anki_id:
+            row = db._conn.execute(
+                "SELECT field_1, field_2 FROM anki_notes WHERE anki_id = ?",
+                (anki_id,),
+            ).fetchone()
+            if row:
+                anki_f1 = _strip_html(row["field_1"])
+                anki_f2 = _strip_html(row["field_2"])
+
+        print(f"\n{'─'*60}")
+        print(f"Note {i}/{total} — {note_type}")
+        if fp:
+            print(f"  {fp}")
+        print(f"  Vault F1: {vault_f1}")
+        print(f"  Anki  F1: {anki_f1}")
+        if vault_f2 or anki_f2:
+            print(f"  Vault F2: {vault_f2}")
+            print(f"  Anki  F2: {anki_f2}")
+
+        while True:
+            choice = input("\n  [u]pdate Anki  [s]kip  [r]evert DB to Anki: ").strip().lower()
+            if choice in ("u", "update"):
+                if uuid:
+                    db.mark_to_modify(uuid)
+                approved.append(entry)
+                break
+            elif choice in ("s", "skip"):
+                break
+            elif choice in ("r", "revert"):
+                if uuid:
+                    db.revert_note_to_anki(uuid)
+                break
+            else:
+                print("  Invalid — enter u, s, or r.")
+
+    new_diff = dict(diff)
+    new_diff["update"] = approved
+    return new_diff
+
+
 def _parse_tags(raw: str | None) -> list[str]:
     if not raw:
         return []
@@ -402,6 +473,14 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help=f"Markdown preview output (default: {_DEFAULT_MD}).",
     )
+    parser.add_argument(
+        "--resolve",
+        action="store_true",
+        help=(
+            "Interactively resolve modified notes before writing the diff. "
+            "For each modified note, prompts: [u]pdate Anki / [s]kip / [r]evert DB to Anki."
+        ),
+    )
     return parser
 
 
@@ -431,6 +510,10 @@ def main() -> None:
         sys.exit(1)
 
     diff = build_diff(db, vault_path)
+
+    if args.resolve:
+        diff = resolve_modifications(diff, db)
+
     db.close()
 
     total = sum(len(v) for v in diff.values())
