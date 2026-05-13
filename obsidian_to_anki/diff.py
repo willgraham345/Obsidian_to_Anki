@@ -65,9 +65,6 @@ def _strip_html(text: str | None, max_len: int = 80) -> str:
     return (plain[:max_len] + "…") if len(plain) > max_len else plain
 
 
-def _md_cell(text: str) -> str:
-    return text.replace("|", "\\|")
-
 
 def _lookup_uuid(db: NoteDB, row: dict) -> str | None:
     file_path = row.get("file_path")
@@ -217,31 +214,34 @@ def write_markdown(diff: dict, vault_path: str, output_path: str) -> None:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     total = sum(len(v) for v in diff.values())
 
-    lines: list[str] = [
-        "# Anki Diff Preview\n",
-        f"Generated: {now}  \n",
-        f"Vault: `{vault_path}`  \n",
-        "\n---\n",
-        "\n## Summary\n",
-        "\n| Action | Count |",
-        "\n|--------|-------|",
-        f"\n| add | {len(diff['add'])} |",
-        f"\n| update | {len(diff['update'])} |",
-        f"\n| re-add (stale ID) | {len(diff['restale'])} |",
-        f"\n| modify deck | {len(diff.get('modify_deck', []))} |",
-        f"\n| delete (orphan) | {len(diff['orphan'])} |",
-        f"\n| stale (file deleted) | {len(diff.get('stale', []))} |",
-        f"\n| **total** | **{total}** |",
+    counts = [
+        ("add",              len(diff["add"])),
+        ("update",           len(diff["update"])),
+        ("re-add (stale ID)", len(diff["restale"])),
+        ("modify deck",      len(diff.get("modify_deck", []))),
+        ("orphan",           len(diff["orphan"])),
+        ("stale (deleted)",  len(diff.get("stale", []))),
     ]
 
+    lines: list[str] = [
+        "# Anki Diff\n",
+        f"\nGenerated: {now}  \n",
+        f"Vault: `{vault_path}`\n",
+        "\n---\n",
+        "\n## Summary\n",
+    ]
+    for label, n in counts:
+        lines.append(f"\n- {label}: {n}")
+    lines.append(f"\n- **total: {total}**\n")
+
     if total == 0:
-        lines.append("\n\n> Nothing to do — all notes are synced.\n")
+        lines.append("\n> Nothing to do — all notes are synced.\n")
     else:
-        _md_section(lines, "Add", diff["add"], vault_path, show_anki=False)
-        _md_section(lines, "Update", diff["update"], vault_path, show_anki=True)
-        _md_section(lines, "Re-add (Stale ID)", diff["restale"], vault_path, show_anki=False)
+        _md_section_add(lines, "Add", diff["add"], vault_path)
+        _md_section_update(lines, "Update", diff["update"], vault_path)
+        _md_section_add(lines, "Re-add (Stale ID)", diff["restale"], vault_path)
         _md_section_modify_deck(lines, "Modify Deck", diff.get("modify_deck", []))
-        _md_section_orphan(lines, "Delete (Orphan)", diff["orphan"])
+        _md_section_orphan(lines, "Orphan (Delete from Anki)", diff["orphan"])
         _md_section_stale(lines, "Stale (File Deleted)", diff.get("stale", []))
 
     content = "".join(lines) + "\n"
@@ -251,99 +251,116 @@ def write_markdown(diff: dict, vault_path: str, output_path: str) -> None:
     print(f"[md]   Written to: {output_path}")
 
 
-def _md_section(
-    lines: list[str],
-    title: str,
-    rows: list[dict],
-    vault_path: str,
-    show_anki: bool,
-) -> None:
-    if not rows:
-        return
-    lines.append(f"\n\n## {title}\n")
-    if show_anki:
-        lines += [
-            "\n| Note Type | File | Vault F1 | Vault F2 | Anki F1 | Anki F2 | Deck |",
-            "\n|-----------|------|----------|----------|---------|---------|------|",
-        ]
+def _md_note_entry(lines: list[str], r: dict, vault_path: str) -> None:
+    """Append a single note block (### heading + fields) to lines."""
+    note_type = r.get("note_type") or "Unknown"
+    fp = r.get("file_path") or ""
+    rel = _rel(fp, vault_path) if fp else ""
+    lines.append(f"\n### {note_type}")
+    if rel:
+        lines.append(f"\n`{rel}`\n")
     else:
-        lines += [
-            "\n| Note Type | File | Field 1 | Field 2 | Deck |",
-            "\n|-----------|------|---------|---------|------|",
-        ]
-    for r in rows:
-        rel = _rel(r.get("file_path"), vault_path)
-        if show_anki:
-            lines.append(
-                f"\n| {_md_cell(r.get('note_type',''))}"
-                f" | {_md_cell(rel)}"
-                f" | {_md_cell(_strip_html(r.get('field_1')))}"
-                f" | {_md_cell(_strip_html(r.get('field_2')))}"
-                f" | {_md_cell(_strip_html(r.get('anki_field_1','')))}"
-                f" | {_md_cell(_strip_html(r.get('anki_field_2','')))}"
-                f" | {_md_cell(r.get('deck_name',''))} |"
-            )
-        else:
-            lines.append(
-                f"\n| {_md_cell(r.get('note_type',''))}"
-                f" | {_md_cell(rel)}"
-                f" | {_md_cell(_strip_html(r.get('field_1')))}"
-                f" | {_md_cell(_strip_html(r.get('field_2')))}"
-                f" | {_md_cell(r.get('deck_name',''))} |"
-            )
+        lines.append("\n")
 
 
-def _md_section_orphan(lines: list[str], title: str, rows: list[dict]) -> None:
+def _md_section_add(lines: list[str], title: str, rows: list[dict], vault_path: str) -> None:
     if not rows:
         return
-    lines.append(f"\n\n## {title}\n")
-    lines += [
-        "\n| Anki ID | Note Type | Field 1 | Field 2 | Deck |",
-        "\n|---------|-----------|---------|---------|------|",
-    ]
+    lines.append(f"\n\n## {title} ({len(rows)})\n")
     for r in rows:
-        lines.append(
-            f"\n| {r.get('anki_id','')}"
-            f" | {_md_cell(r.get('note_type',''))}"
-            f" | {_md_cell(_strip_html(r.get('field_1')))}"
-            f" | {_md_cell(_strip_html(r.get('field_2')))}"
-            f" | {_md_cell(r.get('deck_name',''))} |"
-        )
+        _md_note_entry(lines, r, vault_path)
+        f1 = _strip_html(r.get("field_1"))
+        f2 = _strip_html(r.get("field_2"))
+        deck = r.get("deck_name") or ""
+        if f1:
+            lines.append(f"\n**Field 1:** {f1}")
+        if f2:
+            lines.append(f"\n**Field 2:** {f2}")
+        if deck:
+            lines.append(f"\n**Deck:** {deck}")
+        lines.append("\n")
+
+
+def _md_section_update(lines: list[str], title: str, rows: list[dict], vault_path: str) -> None:
+    if not rows:
+        return
+    lines.append(f"\n\n## {title} ({len(rows)})\n")
+    for r in rows:
+        _md_note_entry(lines, r, vault_path)
+        vf1 = _strip_html(r.get("field_1"))
+        vf2 = _strip_html(r.get("field_2"))
+        af1 = _strip_html(r.get("anki_field_1"))
+        af2 = _strip_html(r.get("anki_field_2"))
+        deck = r.get("deck_name") or ""
+        if vf1 or af1:
+            lines.append(f"\n**Vault F1:** {vf1}")
+            lines.append(f"\n**Anki F1:**  {af1}")
+        if vf2 or af2:
+            lines.append(f"\n**Vault F2:** {vf2}")
+            lines.append(f"\n**Anki F2:**  {af2}")
+        if deck:
+            lines.append(f"\n**Deck:** {deck}")
+        lines.append("\n")
 
 
 def _md_section_modify_deck(lines: list[str], title: str, rows: list[dict]) -> None:
     if not rows:
         return
-    lines.append(f"\n\n## {title}\n")
-    lines += [
-        "\n| Anki ID | Note Type | File | Field 1 | Vault Deck | Anki Deck |",
-        "\n|---------|-----------|------|---------|------------|-----------|",
-    ]
+    lines.append(f"\n\n## {title} ({len(rows)})\n")
     for r in rows:
-        lines.append(
-            f"\n| {r.get('anki_id','')}"
-            f" | {_md_cell(r.get('note_type',''))}"
-            f" | {_md_cell(r.get('file_path','') or '')}"
-            f" | {_md_cell(_strip_html(r.get('field_1')))}"
-            f" | {_md_cell(r.get('vault_deck','') or '')}"
-            f" | {_md_cell(r.get('anki_deck','') or '')} |"
-        )
+        note_type = r.get("note_type") or "Unknown"
+        fp = r.get("file_path") or ""
+        f1 = _strip_html(r.get("field_1"))
+        vault_deck = r.get("vault_deck") or ""
+        anki_deck  = r.get("anki_deck") or ""
+        lines.append(f"\n### {note_type}")
+        if fp:
+            lines.append(f"\n`{fp}`\n")
+        else:
+            lines.append("\n")
+        if f1:
+            lines.append(f"\n**Field 1:** {f1}")
+        lines.append(f"\n**Vault Deck:** {vault_deck}")
+        lines.append(f"\n**Anki Deck:**  {anki_deck}")
+        lines.append("\n")
+
+
+def _md_section_orphan(lines: list[str], title: str, rows: list[dict]) -> None:
+    if not rows:
+        return
+    lines.append(f"\n\n## {title} ({len(rows)})\n")
+    for r in rows:
+        note_type = r.get("note_type") or "Unknown"
+        anki_id   = r.get("anki_id") or ""
+        f1 = _strip_html(r.get("field_1"))
+        f2 = _strip_html(r.get("field_2"))
+        deck = r.get("deck_name") or ""
+        lines.append(f"\n### {note_type} (Anki ID: {anki_id})\n")
+        if f1:
+            lines.append(f"\n**Field 1:** {f1}")
+        if f2:
+            lines.append(f"\n**Field 2:** {f2}")
+        if deck:
+            lines.append(f"\n**Deck:** {deck}")
+        lines.append("\n")
 
 
 def _md_section_stale(lines: list[str], title: str, rows: list[dict]) -> None:
     if not rows:
         return
-    lines.append(f"\n\n## {title}\n")
-    lines += [
-        "\n| Note Type | File | Field 1 |",
-        "\n|-----------|------|---------|",
-    ]
+    lines.append(f"\n\n## {title} ({len(rows)})\n")
     for r in rows:
-        lines.append(
-            f"\n| {_md_cell(r.get('note_type',''))}"
-            f" | {_md_cell(r.get('file_path','') or '')}"
-            f" | {_md_cell(_strip_html(r.get('field_1')))} |"
-        )
+        note_type = r.get("note_type") or "Unknown"
+        fp = r.get("file_path") or ""
+        f1 = _strip_html(r.get("field_1"))
+        lines.append(f"\n### {note_type}")
+        if fp:
+            lines.append(f"\n`{fp}`\n")
+        else:
+            lines.append("\n")
+        if f1:
+            lines.append(f"\n**Field 1:** {f1}")
+        lines.append("\n")
 
 
 def _rel(file_path: str | None, vault_path: str) -> str:

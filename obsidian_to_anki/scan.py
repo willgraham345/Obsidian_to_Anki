@@ -259,6 +259,16 @@ def run_vault_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
     return files_with_notes, total_notes
 
 
+def parse_files(vault_path: str, db: NoteDB) -> tuple[int, int]:
+    """Alias for run_vault_scan — name matches plan.md process step 3."""
+    return run_vault_scan(vault_path, db)
+
+
+def compare_vault_modifications(db: NoteDB, exclude_synced: bool = True) -> list[dict]:
+    """Return state comparison rows — plan.md process step 4."""
+    return db.get_comparison_rows(exclude_synced=exclude_synced)
+
+
 # ── Stage 2: Anki snapshot ─────────────────────────────────────────────────────
 
 def scan_anki(db: NoteDB) -> int:
