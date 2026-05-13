@@ -20,6 +20,7 @@ _spec.loader.exec_module(_scan_mod)  # type: ignore
 
 add_atomic_id = _scan_mod.add_atomic_id
 find_vault_modifications = _scan_mod.find_vault_modifications
+_read_frontmatter_sync = _scan_mod._read_frontmatter_sync
 
 
 @pytest.fixture
@@ -117,3 +118,63 @@ class TestFindVaultModifications:
         abs_r, _ = find_vault_modifications(db, str(tmp_path))
         assert abs_r == 1
         assert db.get_note("n-1") is None
+
+    def test_empty_db_returns_zero_zero(self, tmp_path, db):
+        abs_r, stale_r = find_vault_modifications(db, str(tmp_path))
+        assert abs_r == 0
+        assert stale_r == 0
+
+    def test_already_stale_not_recounted(self, tmp_path, db):
+        self._make_note(db, "n-1", "gone.md")
+        db.mark_stale("gone.md")
+        _, stale_r = find_vault_modifications(db, str(tmp_path))
+        assert stale_r == 0
+
+    def test_mixed_existing_and_missing(self, tmp_path, db):
+        alive = tmp_path / "alive.md"
+        alive.write_text("content", encoding="utf-8")
+        self._make_note(db, "n-1", "alive.md")
+        self._make_note(db, "n-2", "gone.md")
+        _, stale_r = find_vault_modifications(db, str(tmp_path))
+        assert stale_r == 1
+        assert db.get_note("n-1")["state"] == "unknown"
+        assert db.get_note("n-2")["state"] == "stale"
+
+    def test_returns_abs_and_stale_independently(self, tmp_path, db):
+        self._make_note(db, "n-1", "/absolute/path/note.md")
+        self._make_note(db, "n-2", "gone.md")
+        abs_r, stale_r = find_vault_modifications(db, str(tmp_path))
+        assert abs_r == 1
+        assert stale_r == 1
+
+
+class TestReadFrontmatterSync:
+
+    def test_returns_anki_sync_dict(self, tmp_path):
+        f = tmp_path / "note.md"
+        f.write_text("---\nanki_sync:\n  uuid-1: 1234\n  uuid-2: 5678\n---\n# Body\n", encoding="utf-8")
+        result = _read_frontmatter_sync(str(f))
+        assert result == {"uuid-1": 1234, "uuid-2": 5678}
+
+    def test_no_frontmatter_returns_empty(self, tmp_path):
+        f = tmp_path / "note.md"
+        f.write_text("# Just a heading\n", encoding="utf-8")
+        assert _read_frontmatter_sync(str(f)) == {}
+
+    def test_missing_anki_sync_key_returns_empty(self, tmp_path):
+        f = tmp_path / "note.md"
+        f.write_text("---\ntitle: My Note\n---\n# Body\n", encoding="utf-8")
+        assert _read_frontmatter_sync(str(f)) == {}
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        assert _read_frontmatter_sync(str(tmp_path / "nonexistent.md")) == {}
+
+    def test_invalid_yaml_returns_empty(self, tmp_path):
+        f = tmp_path / "note.md"
+        f.write_text("---\n: bad: yaml: [\n---\n# Body\n", encoding="utf-8")
+        assert _read_frontmatter_sync(str(f)) == {}
+
+    def test_empty_anki_sync_returns_empty(self, tmp_path):
+        f = tmp_path / "note.md"
+        f.write_text("---\nanki_sync: {}\n---\n# Body\n", encoding="utf-8")
+        assert _read_frontmatter_sync(str(f)) == {}

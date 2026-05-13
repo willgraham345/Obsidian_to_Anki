@@ -45,7 +45,6 @@ class TestConfig:
         assert config_parser["Defaults"]["Tag"] == "Obsidian_to_Anki"
         assert config_parser["Defaults"]["Deck"] == "Default"
         assert config_parser["Defaults"]["CurlyCloze"] == "False"
-        assert config_parser["Defaults"]["GUI"] == "True"
         assert config_parser["Defaults"]["Regex"] == "False"
         assert config_parser["Defaults"]["ID Comments"] == "True"
         assert config_parser["Defaults"]["Anki Path"] == ""
@@ -120,13 +119,13 @@ class TestConfig:
             "Tag": "MyTag",
             "Deck": "MyDeck",
             "CurlyCloze": "True",
-            "GUI": "False",
             "Regex": "True",
             "ID Comments": "False",
             "Anki Path": "/path/to/anki",
             "Anki Profile": "MyProfile"
         }
         config_parser["Obsidian"] = {
+            "Vault path": "/home/user/MyVault",
             "Vault name": "MyVault",
             "Add file link": "True"
         }
@@ -136,12 +135,12 @@ class TestConfig:
         assert globals.NOTE_DICT_TEMPLATE["tags"] == ["MyTag"]
         assert globals.NOTE_DICT_TEMPLATE["deckName"] == "MyDeck"
         assert globals.CONFIG_DATA["CurlyCloze"] is True
-        assert globals.CONFIG_DATA["GUI"] is False
         assert globals.CONFIG_DATA["Regex"] is True
         assert globals.CONFIG_DATA["Comment"] is False
         assert globals.CONFIG_DATA["Path"] == "/path/to/anki"
         assert globals.CONFIG_DATA["Profile"] == "MyProfile"
-        assert globals.CONFIG_DATA["Vault"] == "MyVault"
+        assert globals.CONFIG_DATA["Vault"] == "/home/user/MyVault"
+        assert globals.CONFIG_DATA["Vault name"] == "MyVault"
         assert globals.CONFIG_DATA["Add file link"] is True
 
     @patch('src.obsidian_to_anki.config.configparser.ConfigParser')

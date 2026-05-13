@@ -61,6 +61,12 @@ class TestFormatConverter:
         assert note["fields"]["Front"] == 'Hello<br><a href="obsidian://vault/my_vault/my_note" class="obsidian-link">Obsidian</a>'
         assert note["fields"]["Back"] == "World"
 
+    def test_format_note_with_file_stem(self):
+        note = {"fields": {"Front": "Hello", "Back": "World"}}
+        FormatConverter.format_note_with_file_stem(note, "my_note")
+        assert note["fields"]["Front"] == "Hello<br><b>my_note</b>"
+        assert note["fields"]["Back"] == "World"  # second field untouched
+
     def test_format_note_with_frozen_fields(self):
         note = {"modelName": "Basic", "fields": {"Front": "", "Back": ""}}
         frozen_fields_dict = {"Basic": {"Front": "FrozenFront", "Back": "FrozenBack"}}

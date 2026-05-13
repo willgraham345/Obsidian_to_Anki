@@ -4,11 +4,12 @@ import os
 import re
 import hashlib
 
-from src.obsidian_to_anki.file import File
+from src.obsidian_to_anki.file import File, _extract_images, _db_upsert_note
 from src.obsidian_to_anki.note import Note, InlineNote, RegexNote
 from src.obsidian_to_anki.anki_connect import AnkiConnect
 from src.obsidian_to_anki import globals
 from src.obsidian_to_anki.utils import findignore, spans
+from src.obsidian_to_anki.db import NoteDB
 
 
 class TestFile:
@@ -396,3 +397,217 @@ class TestFile:
             call("multi", actions=[mock_anki_request.return_value, mock_anki_request.return_value])
         ], any_order=True)
         assert result == mock_anki_request.return_value
+
+
+class TestExtractImages:
+
+    def test_single_image(self):
+        fields = {"Front": '<img src="cat.png">', "Back": "no image"}
+        assert _extract_images(fields) == ["cat.png"]
+
+    def test_multiple_images(self):
+        fields = {"Front": '<img src="a.png"><img src="b.jpg">'}
+        assert sorted(_extract_images(fields)) == ["a.png", "b.jpg"]
+
+    def test_images_across_fields(self):
+        fields = {"F1": '<img src="x.png">', "F2": '<img src="y.png">'}
+        assert sorted(_extract_images(fields)) == ["x.png", "y.png"]
+
+    def test_no_images(self):
+        assert _extract_images({"Front": "<p>text</p>"}) == []
+
+    def test_empty_fields(self):
+        assert _extract_images({}) == []
+
+
+class TestDbUpsertNote:
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        db = NoteDB(":memory:")
+        globals.NOTE_DB = db
+        yield
+        db.close()
+        globals.NOTE_DB = None
+
+    def _make_parsed(self, anki_id=None, model="Basic", f1="<p>Q</p>", f2="<p>A</p>"):
+        note = {
+            "modelName": model,
+            "fields": {"Front": f1, "Back": f2},
+            "tags": ["tag1"],
+            "deckName": "Default",
+        }
+        return MagicMock(id=anki_id, note=note)
+
+    def test_inserts_new_note_returns_uuid(self):
+        parsed = self._make_parsed()
+        uuid = _db_upsert_note(parsed, "deck/a.md", 5)
+        assert uuid is not None
+        row = globals.NOTE_DB.get_note(uuid)
+        assert row["field_1"] == "<p>Q</p>"
+        assert row["file_path"] == "deck/a.md"
+        assert row["line_number"] == 5
+
+    def test_returns_none_when_db_not_set(self):
+        globals.NOTE_DB = None
+        parsed = self._make_parsed()
+        assert _db_upsert_note(parsed, "deck/a.md", 5) is None
+
+    def test_reuses_existing_uuid_by_location(self):
+        parsed = self._make_parsed()
+        uuid1 = _db_upsert_note(parsed, "deck/a.md", 5)
+        uuid2 = _db_upsert_note(parsed, "deck/a.md", 5)
+        assert uuid1 == uuid2
+        assert len(globals.NOTE_DB.get_notes_for_file("deck/a.md")) == 1
+
+    def test_extracts_images_into_db(self):
+        parsed = self._make_parsed(f1='<img src="diagram.png">')
+        uuid = _db_upsert_note(parsed, "deck/a.md", 1)
+        row = globals.NOTE_DB.get_note(uuid)
+        import json
+        assert "diagram.png" in json.loads(row["image_paths"])
+
+
+class TestApplyChangeDetection:
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        globals.CONFIG_DATA = {
+            "Vault": "",
+            "NOTE_PREFIX": re.escape("## "),
+            "NOTE_SUFFIX": re.escape("## "),
+            "DECK_LINE": "Deck",
+            "TAG_LINE": "Tags",
+            "INLINE_PREFIX": re.escape("{{"),
+            "INLINE_SUFFIX": re.escape("}}"),
+            "FROZEN_LINE": "Frozen",
+            "Comment": False,
+            "ATOMICS": {}
+        }
+        globals.NOTE_DICT_TEMPLATE = {"tags": [], "deckName": "Default"}
+        db = NoteDB(":memory:")
+        globals.NOTE_DB = db
+        globals.EXISTING_IDS = []
+        with patch('builtins.open', mock_open(read_data="")):
+            yield
+        db.close()
+        globals.NOTE_DB = None
+
+    def _file(self):
+        with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/file.md"):
+            f = File("file.md")
+        f.notes_to_delete = []
+        return f
+
+    def _parsed(self, model="Basic", f1="<p>New</p>", f2="<p>A</p>"):
+        note = {"modelName": model, "fields": {"Front": f1, "Back": f2},
+                "tags": [], "deckName": "Default"}
+        return MagicMock(id=None, note=note)
+
+    def test_no_db_passthrough(self):
+        globals.NOTE_DB = None
+        f = self._file()
+        parsed = self._parsed()
+        result = f._apply_change_detection(parsed, "deck/a.md", 5)
+        assert result is parsed
+
+    def test_parsed_has_id_passthrough(self):
+        f = self._file()
+        parsed = MagicMock(id=123, note={"modelName": "Basic",
+                                          "fields": {"Front": "<p>Q</p>", "Back": "<p>A</p>"},
+                                          "tags": [], "deckName": "Default"})
+        result = f._apply_change_detection(parsed, "deck/a.md", 5)
+        assert result is parsed
+
+    def test_changed_content_queues_deletion(self):
+        globals.NOTE_DB.upsert_note(
+            uuid="u1", anki_id=42, file_path="deck/a.md", line_number=5,
+            note_type="Basic", field_1="<p>Old</p>", field_2="<p>A</p>",
+            image_paths=[], tags=[], deck_name="Default"
+        )
+        f = self._file()
+        parsed = self._parsed(f1="<p>New</p>")
+        f._apply_change_detection(parsed, "deck/a.md", 5)
+        assert 42 in f.notes_to_delete
+
+    def test_unchanged_content_no_deletion(self):
+        globals.NOTE_DB.upsert_note(
+            uuid="u1", anki_id=42, file_path="deck/a.md", line_number=5,
+            note_type="Basic", field_1="<p>Same</p>", field_2="<p>A</p>",
+            image_paths=[], tags=[], deck_name="Default"
+        )
+        f = self._file()
+        parsed = self._parsed(f1="<p>Same</p>", f2="<p>A</p>")
+        f._apply_change_detection(parsed, "deck/a.md", 5)
+        assert f.notes_to_delete == []
+
+    def test_no_anki_id_no_deletion(self):
+        globals.NOTE_DB.upsert_note(
+            uuid="u1", anki_id=None, file_path="deck/a.md", line_number=5,
+            note_type="Basic", field_1="<p>Old</p>", field_2="<p>A</p>",
+            image_paths=[], tags=[], deck_name="Default"
+        )
+        f = self._file()
+        parsed = self._parsed(f1="<p>New</p>")
+        f._apply_change_detection(parsed, "deck/a.md", 5)
+        assert f.notes_to_delete == []
+
+
+class TestUpdateDbAnkiIds:
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        db = NoteDB(":memory:")
+        globals.NOTE_DB = db
+        globals.CONFIG_DATA = {
+            "Vault": "",
+            "NOTE_PREFIX": re.escape("## "),
+            "NOTE_SUFFIX": re.escape("## "),
+            "DECK_LINE": "Deck",
+            "TAG_LINE": "Tags",
+            "INLINE_PREFIX": re.escape("{{"),
+            "INLINE_SUFFIX": re.escape("}}"),
+            "FROZEN_LINE": "Frozen",
+            "Comment": False,
+            "ATOMICS": {}
+        }
+        globals.NOTE_DICT_TEMPLATE = {"tags": [], "deckName": "Default"}
+        globals.EXISTING_IDS = []
+        with patch('builtins.open', mock_open(read_data="")):
+            yield
+        db.close()
+        globals.NOTE_DB = None
+
+    def test_marks_synced_for_block_notes(self):
+        db = globals.NOTE_DB
+        db.upsert_note(uuid="u1", anki_id=None, file_path="a.md", line_number=1,
+                       note_type="Basic", field_1="q", field_2="a",
+                       image_paths=[], tags=[], deck_name="Default")
+        with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
+            f = File("a.md")
+        f.id_indexes = [10]
+        f.regex_id_indexes = []
+        f.uuid_for_add = ["u1"]
+        f.uuid_for_regex_add = []
+        f.uuid_for_inline_add = []
+        f.note_ids = [999]
+        f.update_db_anki_ids()
+        row = db.get_note("u1")
+        assert row["anki_id"] == 999
+
+    def test_no_db_is_noop(self):
+        globals.NOTE_DB = None
+        with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
+            f = File("a.md")
+        f.id_indexes = []
+        f.regex_id_indexes = []
+        f.uuid_for_add = []
+        f.uuid_for_regex_add = []
+        f.uuid_for_inline_add = []
+        f.note_ids = []
+        f.update_db_anki_ids()  # should not raise
+
+    def test_no_note_ids_attr_is_noop(self):
+        with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
+            f = File("a.md")
+        f.update_db_anki_ids()  # should not raise

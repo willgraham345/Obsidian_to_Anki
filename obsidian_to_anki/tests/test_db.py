@@ -382,3 +382,85 @@ class TestAtomicId:
         db.set_file_atomic_id("deck/note.md", "uuid-v1")
         db.set_file_atomic_id("deck/note.md", "uuid-v2")
         assert db.get_file_atomic_id("deck/note.md") == "uuid-v2"
+
+
+class TestGetNoteByContent:
+
+    def test_returns_single_match(self, db):
+        _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Basic", field_1="<p>Q</p>")
+        row = db.get_note_by_content("deck/a.md", "Basic", "<p>Q</p>")
+        assert row is not None
+        assert row["id"] == "u1"
+
+    def test_returns_none_when_no_match(self, db):
+        assert db.get_note_by_content("deck/a.md", "Basic", "<p>Q</p>") is None
+
+    def test_returns_none_when_ambiguous(self, db):
+        _make_note(db, uuid="u1", file_path="deck/a.md", line_number=1, note_type="Basic", field_1="<p>Q</p>")
+        _make_note(db, uuid="u2", file_path="deck/a.md", line_number=2, note_type="Basic", field_1="<p>Q</p>")
+        assert db.get_note_by_content("deck/a.md", "Basic", "<p>Q</p>") is None
+
+    def test_note_type_scoped(self, db):
+        _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Basic", field_1="<p>Q</p>")
+        assert db.get_note_by_content("deck/a.md", "Cloze", "<p>Q</p>") is None
+
+    def test_matches_null_field_1(self, db):
+        _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Basic", field_1=None)
+        row = db.get_note_by_content("deck/a.md", "Basic", None)
+        assert row is not None
+
+
+class TestUpdateAnkiNoteFields:
+
+    def test_updates_field_values(self, db):
+        db.upsert_anki_note(99, "Basic", "old_front", "old_back", [], "Default", 1000)
+        db.update_anki_note_fields(99, "new_front", "new_back")
+        row = db._conn.execute(
+            "SELECT field_1, field_2 FROM anki_notes WHERE anki_id = 99"
+        ).fetchone()
+        assert row["field_1"] == "new_front"
+        assert row["field_2"] == "new_back"
+
+    def test_accepts_null_field_2(self, db):
+        db.upsert_anki_note(99, "Basic", "q", "a", [], "Default", 1000)
+        db.update_anki_note_fields(99, "q", None)
+        row = db._conn.execute(
+            "SELECT field_2 FROM anki_notes WHERE anki_id = 99"
+        ).fetchone()
+        assert row["field_2"] is None
+
+    def test_noop_on_unknown_id(self, db):
+        db.update_anki_note_fields(9999, "x", "y")  # should not raise
+
+
+class TestClearAnkiNotes:
+
+    def test_wipes_all_rows(self, db):
+        db.upsert_anki_note(1, "Basic", "f1", "f2", [], "Default", 100)
+        db.upsert_anki_note(2, "Basic", "g1", "g2", [], "Default", 100)
+        db.clear_anki_notes()
+        n = db._conn.execute("SELECT COUNT(*) AS n FROM anki_notes").fetchone()["n"]
+        assert n == 0
+
+    def test_idempotent_on_empty(self, db):
+        db.clear_anki_notes()
+        db.clear_anki_notes()  # should not raise
+
+
+class TestGetComparisonSummary:
+
+    def test_returns_status_counts(self, db):
+        # Two vault notes without anki_id → 'not_in_anki'
+        _make_note(db, uuid="u1", anki_id=None)
+        _make_note(db, uuid="u2", anki_id=None, line_number=20)
+        summary = db.get_comparison_summary()
+        assert any(r["status"] == "not_in_anki" and r["n"] == 2 for r in summary)
+
+    def test_synced_status(self, db):
+        _make_note(db, uuid="u1", anki_id=10)
+        db.upsert_anki_note(10, "Basic", "<p>Front</p>", "<p>Back</p>", [], "Default", 1000)
+        summary = db.get_comparison_summary()
+        assert any(r["status"] == "synced" for r in summary)
+
+    def test_empty_db_returns_empty_list(self, db):
+        assert db.get_comparison_summary() == []
