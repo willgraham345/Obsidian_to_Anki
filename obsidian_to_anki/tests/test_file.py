@@ -25,7 +25,7 @@ class TestFile:
             "INLINE_SUFFIX": re.escape("}}"),
             "FROZEN_LINE": "Frozen",
             "Comment": False,
-            "CUSTOM_REGEXPS": {}
+            "ATOMICS": {}
         }
         globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
         globals.NOTE_REGEXP = re.compile(r"## (.+?)\n(.*?)\n## ", re.DOTALL)
@@ -237,7 +237,7 @@ class TestFile:
     @patch('src.obsidian_to_anki.file.File.add_spans_to_ignore')
     @patch('src.obsidian_to_anki.file.File.search')
     def test_scan_file_calls_search_for_custom_regexps(self, mock_search, mock_add_spans, *_):
-        globals.CONFIG_DATA["CUSTOM_REGEXPS"] = {"MyNoteType": "MY_REGEX"}
+        globals.CONFIG_DATA["ATOMICS"] = {"MyNoteType": "MY_REGEX"}
         file_content = "## \nID: 12345\n## "
         file_instance = File("dummy.md")
         file_instance.file = file_content

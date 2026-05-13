@@ -60,7 +60,7 @@ def _init() -> NoteDB:
         print(f"Config error: {exc}")
         sys.exit(1)
 
-    custom = globals.CONFIG_DATA.get("CUSTOM_REGEXPS", {})
+    custom = globals.CONFIG_DATA.get("ATOMICS", {})
     fields_dict: dict[str, list[str]] = {}
     for note_type, pattern in custom.items():
         if note_type in _KNOWN_FIELDS:
@@ -227,7 +227,7 @@ def _ensure_decks(ac: AnkiConnect, manifest: dict) -> None:
 
 
 def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = False) -> dict:
-    results = {"added": 0, "updated": 0, "re_added": 0, "reconciled": 0, "deleted": 0, "errors": []}
+    results = {"added": 0, "updated": 0, "re_added": 0, "reconciled": 0, "deleted": 0, "deck_changed": 0, "errors": []}
     _ensure_decks(ac, manifest)
 
     # file_path → {uuid: anki_id} for frontmatter writes
@@ -306,6 +306,20 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
                 fm_updates.setdefault(fp, {})[uuid] = anki_id
         except Exception as exc:
             results["errors"].append(f"updateNoteFields (id={anki_id}): {exc}")
+
+    for entry in manifest.get("modify_deck", []):
+        anki_id = entry.get("anki_id")
+        deck_name = entry.get("vault_deck")
+        if not anki_id or not deck_name:
+            continue
+        try:
+            note_info = ac.invoke("notesInfo", notes=[anki_id])
+            card_ids = note_info[0].get("cards", []) if note_info else []
+            if card_ids:
+                ac.invoke("changeDeck", cards=card_ids, deck=deck_name)
+            results["deck_changed"] += 1
+        except Exception as exc:
+            results["errors"].append(f"changeDeck (id={anki_id}): {exc}")
 
     orphan_ids = [e["anki_id"] for e in manifest.get("orphan", []) if e.get("anki_id")]
     if orphan_ids:
@@ -410,7 +424,7 @@ def main() -> None:
 
     print(f"\nDone — added={results['added']}, updated={results['updated']}, "
           f"re_added={results['re_added']}, reconciled={results['reconciled']}, "
-          f"deleted={results['deleted']}")
+          f"deck_changed={results['deck_changed']}, deleted={results['deleted']}")
     if results["errors"]:
         print(f"\nErrors ({len(results['errors'])}):")
         for err in results["errors"]:

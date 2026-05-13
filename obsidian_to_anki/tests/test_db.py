@@ -232,3 +232,106 @@ class TestReconcileOrphans:
         _make_anki_note(db, anki_id=9001, field_1="Type erasure", field_2="<p>Back</p>")
         assert db.reconcile_orphans() == 1
         assert db.get_note("v-1")["anki_id"] == 9001
+
+
+class TestStaleState:
+
+    def test_mark_stale_sets_state(self, db):
+        _make_note(db, uuid="s-1", file_path="deck/gone.md")
+        count = db.mark_stale("deck/gone.md")
+        assert count == 1
+        assert db.get_note("s-1")["state"] == "stale"
+
+    def test_mark_stale_returns_row_count(self, db):
+        _make_note(db, uuid="s-1", file_path="deck/gone.md", line_number=1)
+        _make_note(db, uuid="s-2", file_path="deck/gone.md", line_number=2)
+        assert db.mark_stale("deck/gone.md") == 2
+
+    def test_get_stale_notes_returns_only_stale(self, db):
+        _make_note(db, uuid="s-1", file_path="deck/gone.md")
+        _make_note(db, uuid="s-2", file_path="deck/alive.md")
+        db.mark_stale("deck/gone.md")
+        stale = db.get_stale_notes()
+        assert len(stale) == 1
+        assert stale[0]["id"] == "s-1"
+
+    def test_mark_synced_clears_stale_state(self, db):
+        _make_note(db, uuid="s-1", file_path="deck/gone.md")
+        db.mark_stale("deck/gone.md")
+        db.mark_synced("s-1", 9001)
+        assert db.get_note("s-1")["state"] == "unknown"
+
+    def test_default_state_is_unknown(self, db):
+        _make_note(db, uuid="s-1")
+        assert db.get_note("s-1")["state"] == "unknown"
+
+
+class TestModifyDeck:
+
+    def test_modify_deck_status_in_view(self, db):
+        """Fields match but vault deck differs from Anki deck → modify_deck."""
+        _make_note(db, uuid="m-1", anki_id=8001, deck_name="VaultDeck")
+        db.upsert_anki_note(
+            anki_id=8001,
+            note_type="Basic",
+            field_1="<p>Front</p>",
+            field_2="<p>Back</p>",
+            tags=[],
+            deck_name="AnkiDeck",
+            mod_timestamp=None,
+        )
+        rows = db.get_comparison_rows(exclude_synced=True)
+        modify_deck_rows = [r for r in rows if r["status"] == "modify_deck"]
+        assert len(modify_deck_rows) == 1
+        assert modify_deck_rows[0]["vault_deck"] == "VaultDeck"
+        assert modify_deck_rows[0]["anki_deck"] == "AnkiDeck"
+
+    def test_synced_when_decks_match(self, db):
+        """Same fields AND same deck → synced, not modify_deck."""
+        _make_note(db, uuid="m-2", anki_id=8002, deck_name="SameDeck")
+        db.upsert_anki_note(
+            anki_id=8002,
+            note_type="Basic",
+            field_1="<p>Front</p>",
+            field_2="<p>Back</p>",
+            tags=[],
+            deck_name="SameDeck",
+            mod_timestamp=None,
+        )
+        rows = db.get_comparison_rows(exclude_synced=False)
+        statuses = {r["status"] for r in rows if r["anki_id"] == 8002}
+        assert statuses == {"synced"}
+
+    def test_modified_takes_priority_over_modify_deck(self, db):
+        """If fields differ, status is 'modified' even when decks also differ."""
+        _make_note(db, uuid="m-3", anki_id=8003,
+                   field_1="<p>NewFront</p>", deck_name="VaultDeck")
+        db.upsert_anki_note(
+            anki_id=8003,
+            note_type="Basic",
+            field_1="<p>OldFront</p>",
+            field_2="<p>Back</p>",
+            tags=[],
+            deck_name="AnkiDeck",
+            mod_timestamp=None,
+        )
+        rows = db.get_comparison_rows(exclude_synced=True)
+        target = [r for r in rows if r["anki_id"] == 8003]
+        assert len(target) == 1
+        assert target[0]["status"] == "modified"
+
+
+class TestAtomicId:
+
+    def test_set_and_get_file_atomic_id(self, db):
+        db.set_file_atomic_id("deck/note.md", "test-uuid-1234")
+        assert db.get_file_atomic_id("deck/note.md") == "test-uuid-1234"
+
+    def test_get_atomic_id_missing_returns_none(self, db):
+        assert db.get_file_atomic_id("nonexistent.md") is None
+
+    def test_set_atomic_id_updates_existing(self, db):
+        db.set_file_hash("deck/note.md", "sha256abc")
+        db.set_file_atomic_id("deck/note.md", "uuid-v1")
+        db.set_file_atomic_id("deck/note.md", "uuid-v2")
+        assert db.get_file_atomic_id("deck/note.md") == "uuid-v2"

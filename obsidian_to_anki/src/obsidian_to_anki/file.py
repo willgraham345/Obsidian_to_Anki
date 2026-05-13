@@ -227,7 +227,7 @@ class File:
           2. Build ignore spans for math/code
           3. Scan block notes atomically via NOTE_REGEXP
           4. Scan inline notes atomically via INLINE_REGEXP
-          5. Scan each CUSTOM_REGEXPS entry atomically via search()
+          5. Scan each ATOMICS entry atomically via search()
           6. Collect deletion markers
         """
         logging.info("Scanning file %s for notes...", self.filename)
@@ -240,7 +240,7 @@ class File:
         for match in findignore(globals.INLINE_REGEXP, self.file, self.ignore_spans):
             self.ignore_spans.append(match.span())
             self._handle_inline_note(match)
-        for note_type, regexp in globals.CONFIG_DATA.get("CUSTOM_REGEXPS", {}).items():
+        for note_type, regexp in globals.CONFIG_DATA.get("ATOMICS", {}).items():
             if regexp:
                 self.search(note_type, regexp)
         for match in globals.EMPTY_REGEXP.finditer(self.file):

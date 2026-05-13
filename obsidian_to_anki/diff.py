@@ -105,19 +105,17 @@ def _deck_from_path(file_path: str | None, vault_path: str) -> str:
 
 
 def build_diff(db: NoteDB, vault_path: str) -> dict:
-    """Read note_comparison, return structured diff dict.
-
-    Orphans are always included but filtered to note types managed by this
-    tool (i.e. types present in the [Custom Regexps] config section).
-    """
+    """Read note_comparison and stale notes, return structured diff dict."""
     rows = db.get_comparison_rows(exclude_synced=True)
-    managed_types: set[str] = set(globals.CONFIG_DATA.get("CUSTOM_REGEXPS", {}).keys())
+    managed_types: set[str] = set(globals.CONFIG_DATA.get("ATOMICS", {}).keys())
 
     diff: dict[str, list[dict]] = {
         "add": [],
         "update": [],
         "restale": [],
         "orphan": [],
+        "modify_deck": [],
+        "stale": [],
     }
 
     for r in rows:
@@ -153,6 +151,19 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
                 "file_path": fp,
             })
 
+        elif status == "modify_deck":
+            uuid = _lookup_uuid(db, r)
+            fp = r.get("file_path")
+            diff["modify_deck"].append({
+                "uuid":       uuid,
+                "anki_id":    r.get("anki_id"),
+                "note_type":  r.get("note_type") or "",
+                "vault_deck": r.get("vault_deck"),
+                "anki_deck":  r.get("anki_deck"),
+                "field_1":    r.get("vault_field_1"),
+                "file_path":  fp,
+            })
+
         elif status == "orphan_in_anki":
             note_type = r.get("note_type") or ""
             if managed_types and note_type not in managed_types:
@@ -164,6 +175,15 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
                 "field_2":   r.get("anki_field_2"),
                 "deck_name": r.get("anki_deck") or "",
             })
+
+    stale_notes = db.get_stale_notes()
+    for n in stale_notes:
+        diff["stale"].append({
+            "uuid":      n["id"],
+            "note_type": n["note_type"],
+            "field_1":   n["field_1"],
+            "file_path": n["file_path"],
+        })
 
     return diff
 
@@ -207,8 +227,10 @@ def write_markdown(diff: dict, vault_path: str, output_path: str) -> None:
         "\n|--------|-------|",
         f"\n| add | {len(diff['add'])} |",
         f"\n| update | {len(diff['update'])} |",
-        f"\n| re-add (stale) | {len(diff['restale'])} |",
+        f"\n| re-add (stale ID) | {len(diff['restale'])} |",
+        f"\n| modify deck | {len(diff.get('modify_deck', []))} |",
         f"\n| delete (orphan) | {len(diff['orphan'])} |",
+        f"\n| stale (file deleted) | {len(diff.get('stale', []))} |",
         f"\n| **total** | **{total}** |",
     ]
 
@@ -218,7 +240,9 @@ def write_markdown(diff: dict, vault_path: str, output_path: str) -> None:
         _md_section(lines, "Add", diff["add"], vault_path, show_anki=False)
         _md_section(lines, "Update", diff["update"], vault_path, show_anki=True)
         _md_section(lines, "Re-add (Stale ID)", diff["restale"], vault_path, show_anki=False)
+        _md_section_modify_deck(lines, "Modify Deck", diff.get("modify_deck", []))
         _md_section_orphan(lines, "Delete (Orphan)", diff["orphan"])
+        _md_section_stale(lines, "Stale (File Deleted)", diff.get("stale", []))
 
     content = "".join(lines) + "\n"
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
@@ -284,6 +308,41 @@ def _md_section_orphan(lines: list[str], title: str, rows: list[dict]) -> None:
             f" | {_md_cell(_strip_html(r.get('field_1')))}"
             f" | {_md_cell(_strip_html(r.get('field_2')))}"
             f" | {_md_cell(r.get('deck_name',''))} |"
+        )
+
+
+def _md_section_modify_deck(lines: list[str], title: str, rows: list[dict]) -> None:
+    if not rows:
+        return
+    lines.append(f"\n\n## {title}\n")
+    lines += [
+        "\n| Anki ID | Note Type | File | Field 1 | Vault Deck | Anki Deck |",
+        "\n|---------|-----------|------|---------|------------|-----------|",
+    ]
+    for r in rows:
+        lines.append(
+            f"\n| {r.get('anki_id','')}"
+            f" | {_md_cell(r.get('note_type',''))}"
+            f" | {_md_cell(r.get('file_path','') or '')}"
+            f" | {_md_cell(_strip_html(r.get('field_1')))}"
+            f" | {_md_cell(r.get('vault_deck','') or '')}"
+            f" | {_md_cell(r.get('anki_deck','') or '')} |"
+        )
+
+
+def _md_section_stale(lines: list[str], title: str, rows: list[dict]) -> None:
+    if not rows:
+        return
+    lines.append(f"\n\n## {title}\n")
+    lines += [
+        "\n| Note Type | File | Field 1 |",
+        "\n|-----------|------|---------|",
+    ]
+    for r in rows:
+        lines.append(
+            f"\n| {_md_cell(r.get('note_type',''))}"
+            f" | {_md_cell(r.get('file_path','') or '')}"
+            f" | {_md_cell(_strip_html(r.get('field_1')))} |"
         )
 
 
@@ -359,7 +418,8 @@ def main() -> None:
 
     total = sum(len(v) for v in diff.values())
     print(f"Diff: add={len(diff['add'])}, update={len(diff['update'])}, "
-          f"restale={len(diff['restale'])}, orphan={len(diff['orphan'])}  (total={total})")
+          f"restale={len(diff['restale'])}, modify_deck={len(diff['modify_deck'])}, "
+          f"orphan={len(diff['orphan'])}, stale={len(diff['stale'])}  (total={total})")
 
     write_json(diff, vault_path, args.output_json)
     write_markdown(diff, vault_path, args.output_md)

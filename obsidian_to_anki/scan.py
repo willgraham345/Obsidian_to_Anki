@@ -27,6 +27,7 @@ import json
 import os
 import re
 import sys
+import uuid as _uuid_mod
 from urllib.error import URLError
 
 import yaml
@@ -65,7 +66,7 @@ def _init(db_path: str | None = None) -> tuple[NoteDB, Config]:
         print(f"Config error: {exc}")
         sys.exit(1)
 
-    custom = globals.CONFIG_DATA.get("CUSTOM_REGEXPS", {})
+    custom = globals.CONFIG_DATA.get("ATOMICS", {})
     fields_dict: dict[str, list[str]] = {}
     for note_type, pattern in custom.items():
         if note_type in _KNOWN_FIELDS:
@@ -148,35 +149,61 @@ def _read_frontmatter_sync(file_path: str) -> dict[str, int]:
     return {str(k): int(v) for k, v in fm.get("anki_sync", {}).items()}
 
 
-# ── DB pruning ────────────────────────────────────────────────────────────────
+# ── Atomic ID ─────────────────────────────────────────────────────────────────
 
-def prune_stale_notes(db: NoteDB, vault_path: str) -> tuple[int, int]:
-    """Remove stale notes from DB.
+def add_atomic_id(file_path: str, db: NoteDB) -> str:
+    """Ensure file has `atomic_id` in YAML frontmatter. Return the UUID.
 
-    Two categories:
-      1. Absolute-path entries — from accidental scans of test/other vaults.
-         Real vault notes use paths relative to vault_path; absolute paths are
-         contamination (e.g. tests/complex-vault scanned directly).
-      2. Vault-relative entries whose file no longer exists on disk.
+    Writes frontmatter once on first call. Subsequent calls are no-ops.
+    Must run BEFORE File.scan_file() so line numbers are stable after the write.
+    """
+    with open(file_path, encoding="utf-8") as fh:
+        content = fh.read()
+    m = _FM_RE.match(content)
+    if m:
+        try:
+            fm = yaml.safe_load(m.group(1)) or {}
+        except yaml.YAMLError:
+            fm = {}
+        body = content[m.end():]
+    else:
+        fm = {}
+        body = content
 
-    Returns (abs_removed, missing_removed).
+    if "atomic_id" in fm:
+        atomic_id = str(fm["atomic_id"])
+    else:
+        atomic_id = str(_uuid_mod.uuid4())
+        fm["atomic_id"] = atomic_id
+        fm_str = yaml.safe_dump(fm, default_flow_style=False, allow_unicode=True).rstrip()
+        with open(file_path, "w", encoding="utf-8") as fh:
+            fh.write(f"---\n{fm_str}\n---\n{body}")
+
+    db.set_file_atomic_id(file_path, atomic_id)
+    return atomic_id
+
+
+# ── Stale detection ───────────────────────────────────────────────────────────
+
+def find_vault_modifications(db: NoteDB, vault_path: str) -> tuple[int, int]:
+    """Mark notes stale when their vault file no longer exists.
+
+    Absolute-path entries (test-vault contamination) are still deleted since
+    they were never real vault data. Returns (abs_removed, stale_marked).
     """
     cur = db._conn.execute("DELETE FROM notes WHERE file_path LIKE '/%'")
     abs_removed = cur.rowcount
+    db._conn.commit()
 
     rows = db._conn.execute(
-        "SELECT DISTINCT file_path FROM notes WHERE file_path NOT LIKE '/%'"
+        "SELECT DISTINCT file_path FROM notes WHERE file_path NOT LIKE '/%' AND state != 'stale'"
     ).fetchall()
-    missing_removed = 0
+    stale_marked = 0
     for row in rows:
         full = os.path.join(vault_path, row["file_path"])
         if not os.path.isfile(full):
-            cur2 = db._conn.execute(
-                "DELETE FROM notes WHERE file_path = ?", (row["file_path"],)
-            )
-            missing_removed += cur2.rowcount
-    db._conn.commit()
-    return abs_removed, missing_removed
+            stale_marked += db.mark_stale(row["file_path"])
+    return abs_removed, stale_marked
 
 
 # ── Stage 1: vault scan ────────────────────────────────────────────────────────
@@ -197,6 +224,7 @@ def run_vault_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
         for filename in md_files:
             filepath = os.path.join(root, filename)
             try:
+                add_atomic_id(filepath, db)
                 rf = File(filepath)
                 rf.scan_file()
             except Exception as exc:
@@ -339,13 +367,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run --vault + --anki together.",
     )
     parser.add_argument(
-        "--prune-stale",
+        "--find-stale",
         action="store_true",
-        dest="prune_stale",
+        dest="find_stale",
         help=(
-            "After vault scan: remove DB notes with absolute file paths "
-            "(test-vault contamination) and notes whose vault file no longer exists."
+            "After vault scan: mark notes as stale whose vault file no longer exists. "
+            "Absolute-path contamination is always deleted. Safe — no data removed."
         ),
+    )
+    parser.add_argument(
+        "--remove-stale",
+        action="store_true",
+        dest="remove_stale",
+        help="Prompt to permanently delete stale notes from DB (implies --find-stale).",
     )
     return parser
 
@@ -371,16 +405,32 @@ def main() -> None:
     if not os.path.isdir(vault_path):
         parser.error(f"vault_path is not a directory: {vault_path}")
 
-    print(f"Loaded note types from config: {list(globals.CONFIG_DATA.get('CUSTOM_REGEXPS', {}).keys())}")
+    print(f"Loaded note types from config: {list(globals.CONFIG_DATA.get('ATOMICS', {}).keys())}")
     print(f"Vault: {vault_path}\n")
 
     if run_vault:
         run_vault_scan(vault_path, db)
 
-    if args.prune_stale and run_vault:
-        abs_r, miss_r = prune_stale_notes(db, vault_path)
-        print(f"[prune] Removed {abs_r} absolute-path (test) note(s), "
-              f"{miss_r} note(s) for missing files.")
+    if (args.find_stale or args.remove_stale) and run_vault:
+        abs_r, stale_r = find_vault_modifications(db, vault_path)
+        print(f"[stale] Removed {abs_r} absolute-path (test) note(s), "
+              f"marked {stale_r} note(s) as stale.")
+        if args.remove_stale:
+            stale_notes = db.get_stale_notes()
+            if not stale_notes:
+                print("[stale] No stale notes to remove.")
+            else:
+                print(f"\nStale notes ({len(stale_notes)}):")
+                for n in stale_notes:
+                    preview = (n.get("field_1") or "")[:60].replace("\n", " ")
+                    print(f"  {n['file_path']}  [{n['note_type']}]  {preview!r}")
+                answer = input(f"\nRemove {len(stale_notes)} stale note(s) from DB? [y/N]: ").strip().lower()
+                if answer in ("y", "yes"):
+                    for n in stale_notes:
+                        db.delete_note(n["id"])
+                    print(f"[stale] Deleted {len(stale_notes)} note(s).")
+                else:
+                    print("[stale] Cancelled — stale notes kept in DB.")
 
     if run_anki:
         scan_anki(db)

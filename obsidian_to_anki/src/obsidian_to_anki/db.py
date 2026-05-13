@@ -41,6 +41,7 @@ class NoteDB:
                 image_paths TEXT,
                 tags        TEXT,
                 deck_name   TEXT,
+                state       TEXT DEFAULT 'unknown',
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
             );
@@ -48,6 +49,7 @@ class NoteDB:
             CREATE TABLE IF NOT EXISTS file_hashes (
                 file_path   TEXT PRIMARY KEY,
                 sha256      TEXT NOT NULL,
+                atomic_id   TEXT,
                 updated_at  TEXT NOT NULL
             );
 
@@ -90,6 +92,7 @@ class NoteDB:
                          IS NOT
                          CASE WHEN INSTR(a.field_1,'<br><b>')>0 THEN SUBSTR(a.field_1,1,INSTR(a.field_1,'<br><b>')-1) ELSE a.field_1 END
                       OR v.field_2 IS NOT a.field_2                THEN 'modified'
+                    WHEN v.deck_name IS NOT a.deck_name             THEN 'modify_deck'
                     ELSE 'synced'
                 END AS status
             FROM notes v
@@ -115,6 +118,19 @@ class NoteDB:
             LEFT JOIN notes v ON a.anki_id = v.anki_id
             WHERE v.anki_id IS NULL;
         """)
+        self._conn.commit()
+        self._migrate()
+
+    def _migrate(self):
+        """Add columns introduced after initial schema (idempotent)."""
+        notes_cols = [r[1] for r in self._conn.execute("PRAGMA table_info(notes)").fetchall()]
+        if "state" not in notes_cols:
+            self._conn.execute("ALTER TABLE notes ADD COLUMN state TEXT DEFAULT 'unknown'")
+
+        fh_cols = [r[1] for r in self._conn.execute("PRAGMA table_info(file_hashes)").fetchall()]
+        if "atomic_id" not in fh_cols:
+            self._conn.execute("ALTER TABLE file_hashes ADD COLUMN atomic_id TEXT")
+
         self._conn.commit()
 
     def close(self):
@@ -210,10 +226,26 @@ class NoteDB:
 
     def mark_synced(self, uuid: str, anki_id: int) -> None:
         self._conn.execute(
-            "UPDATE notes SET anki_id = ?, updated_at = ? WHERE id = ?",
+            "UPDATE notes SET anki_id = ?, state = 'unknown', updated_at = ? WHERE id = ?",
             (anki_id, _now(), uuid),
         )
         self._conn.commit()
+
+    def mark_stale(self, file_path: str) -> int:
+        """Mark all notes for a file as stale. Returns row count."""
+        cur = self._conn.execute(
+            "UPDATE notes SET state = 'stale', updated_at = ? WHERE file_path = ?",
+            (_now(), file_path),
+        )
+        self._conn.commit()
+        return cur.rowcount
+
+    def get_stale_notes(self) -> list[dict]:
+        """Return all notes with state='stale'."""
+        rows = self._conn.execute(
+            "SELECT * FROM notes WHERE state = 'stale'"
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def update_anki_note_fields(self, anki_id: int, field_1: str | None, field_2: str | None) -> None:
         self._conn.execute(
@@ -248,6 +280,25 @@ class NoteDB:
     def get_all_file_hashes(self) -> dict:
         rows = self._conn.execute("SELECT file_path, sha256 FROM file_hashes").fetchall()
         return {r["file_path"]: r["sha256"] for r in rows}
+
+    def set_file_atomic_id(self, file_path: str, atomic_id: str) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO file_hashes (file_path, sha256, atomic_id, updated_at)
+            VALUES (?, '', ?, ?)
+            ON CONFLICT(file_path) DO UPDATE SET
+                atomic_id  = excluded.atomic_id,
+                updated_at = excluded.updated_at
+            """,
+            (file_path, atomic_id, _now()),
+        )
+        self._conn.commit()
+
+    def get_file_atomic_id(self, file_path: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT atomic_id FROM file_hashes WHERE file_path = ?", (file_path,)
+        ).fetchone()
+        return row["atomic_id"] if row else None
 
     # ------------------------------------------------------------------
     # Added media

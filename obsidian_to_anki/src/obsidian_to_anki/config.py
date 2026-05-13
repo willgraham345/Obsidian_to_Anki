@@ -90,9 +90,9 @@ class Config:
             print("Config file exists, reading...")
             config.read(self.CONFIG_PATH, encoding='utf-8-sig')
         note_types = AnkiConnect.invoke("modelNames")
-        config.setdefault("Custom Regexps", dict())
+        config.setdefault("Atomics", dict())
         for note in note_types:
-            config["Custom Regexps"].setdefault(note, "")
+            config["Atomics"].setdefault(note, "")
         config.setdefault("File Stem Notes", dict())
         for note in note_types:
             config["File Stem Notes"].setdefault(note, "False")
@@ -151,7 +151,7 @@ class Config:
         self.load_syntax(config)
         self.load_defaults(config)
         self.load_folder_decks(config)
-        globals.CONFIG_DATA["CUSTOM_REGEXPS"] = config["Custom Regexps"]
+        globals.CONFIG_DATA["ATOMICS"] = config["Atomics"]
         globals.CONFIG_DATA["FILE_STEM_NOTES"] = {
             k: config.getboolean("File Stem Notes", k, fallback=False)
             for k in config.options("File Stem Notes")

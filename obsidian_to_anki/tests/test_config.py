@@ -59,7 +59,7 @@ class TestConfig:
         mock_config_instance = MockConfigParser.return_value
         mock_config_instance.read.return_value = None
         mock_config_instance.setdefault.side_effect = lambda key, value: mock_config_instance.__setitem__(key, value)
-        mock_config_instance.__getitem__.side_effect = lambda key: {"Custom Regexps": {}}.get(key, {})
+        mock_config_instance.__getitem__.side_effect = lambda key: {"Atomics": {}}.get(key, {})
 
         test_config = Config()
         test_config.update_config()
@@ -68,7 +68,7 @@ class TestConfig:
         MockConfigParser.assert_called_once()
         mock_config_instance.read.assert_called_once_with(test_config.CONFIG_PATH, encoding='utf-8-sig')
         mock_anki_invoke.assert_called_once_with("modelNames")
-        mock_config_instance.setdefault.assert_any_call("Custom Regexps", {})
+        mock_config_instance.setdefault.assert_any_call("Atomics", {})
         mock_file_open.assert_called_once_with(test_config.CONFIG_PATH, "w", encoding='utf_8')
         mock_config_instance.write.assert_called_once_with(mock_file_open())
 
@@ -79,7 +79,7 @@ class TestConfig:
     def test_update_config_new_file(self, mock_file_open, mock_anki_invoke, MockConfigParser, mock_exists):
         mock_config_instance = MockConfigParser.return_value
         mock_config_instance.setdefault.side_effect = lambda key, value: mock_config_instance.__setitem__(key, value)
-        mock_config_instance.__getitem__.side_effect = lambda key: {"Custom Regexps": {}}.get(key, {})
+        mock_config_instance.__getitem__.side_effect = lambda key: {"Atomics": {}}.get(key, {})
 
         test_config = Config()
         test_config.update_config()
@@ -151,7 +151,7 @@ class TestConfig:
     def test_load_config(self, mock_load_folder_decks, mock_load_defaults, mock_load_syntax, MockConfigParser):
         mock_config_instance = MockConfigParser.return_value
         mock_config_instance.read.return_value = None
-        mock_config_instance.__getitem__.side_effect = lambda key: {"Custom Regexps": {"NoteType1": "regex1"}}.get(key, {})
+        mock_config_instance.__getitem__.side_effect = lambda key: {"Atomics": {"NoteType1": "regex1"}}.get(key, {})
 
         test_config = Config()
         test_config.load_config()
@@ -161,7 +161,7 @@ class TestConfig:
         mock_load_syntax.assert_called_once_with(mock_config_instance)
         mock_load_defaults.assert_called_once_with(mock_config_instance)
         mock_load_folder_decks.assert_called_once_with(mock_config_instance)
-        assert globals.CONFIG_DATA["CUSTOM_REGEXPS"] == {"NoteType1": "regex1"}
+        assert globals.CONFIG_DATA["ATOMICS"] == {"NoteType1": "regex1"}
 
     def test_setup_folder_decks(self):
         config_parser = configparser.ConfigParser()
