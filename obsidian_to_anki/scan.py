@@ -1,8 +1,12 @@
 """
 Vault scanner, Anki snapshot, and diff manifest generator.
 
-No Anki connection required for vault-only scan. --anki requires Anki running
-with AnkiConnect on port 8765.
+The vault is the source of truth. The DB caches vault state (notes table) and
+Anki state (anki_notes table). Scanning updates the vault snapshot; diff then
+compares notes vs anki_notes to produce anki_diff.json for write.py.
+
+Diff runs automatically after every vault scan when Anki snapshot data exists.
+Use --anki to refresh the Anki snapshot (requires AnkiConnect on port 8765).
 
 Usage (from obsidian_to_anki/):
     uv run python scan.py [vault_path] [--anki] [--force]
@@ -10,18 +14,16 @@ Usage (from obsidian_to_anki/):
                           [--resolve] [--resolve-review]
 
     vault_path      Path to Obsidian vault (falls back to 'Vault path' in config).
-                    Vault scan runs by default when a path is resolvable.
-
-    --anki          Also snapshot Anki. When vault data exists, automatically
-                    generates anki_diff.json + anki_diff.md for write.py.
+    --anki          Refresh Anki snapshot from live AnkiConnect data.
     --force         Scan all vault files even if their hash is unchanged.
     --output-json   JSON manifest consumed by write.py (default: anki_diff.json).
     --output-md     Human-readable markdown preview (default: anki_diff.md).
     --resolve       Interactively approve each modified note before writing diff.
-    --resolve-review  Interactively link review-queued notes before writing diff.
+                    Review-queue resolution always runs automatically.
 
 Workflow:
-    uv run python scan.py /vault --anki   # full pipeline → anki_diff.json
+    uv run python scan.py /vault --anki   # refresh both snapshots → anki_diff.json
+    uv run python scan.py /vault          # re-scan vault only, diff from cached Anki
     uv run python write.py --execute      # push changes to Anki
 """
 
@@ -230,6 +232,8 @@ def run_vault_scan(vault_path: str, db: NoteDB, force: bool = False) -> tuple[in
     files_skipped = 0
     start_dir = os.getcwd()
 
+    folder_decks = globals.CONFIG_DATA.get("FOLDER_DECKS", [])
+
     for root, dirs, files in os.walk(vault_path):
         dirs[:] = [d for d in dirs if not d.startswith(".")]
         md_files = sorted(f for f in files if f.endswith(".md"))
@@ -238,6 +242,10 @@ def run_vault_scan(vault_path: str, db: NoteDB, force: bool = False) -> tuple[in
         os.chdir(root)
         for filename in md_files:
             filepath = os.path.join(root, filename)
+            if folder_decks:
+                norm = filepath.replace("\\", "/")
+                if not any(pat.search(norm) for pat, _ in folder_decks):
+                    continue
             try:
                 with open(filepath, "rb") as fh:
                     current_hash = hashlib.sha256(fh.read()).hexdigest()
@@ -635,6 +643,20 @@ def resolve_review(db: NoteDB, diff: dict, vault_path: str) -> dict:
             if row:
                 candidates.append(dict(row))
 
+        if not candidates:
+            db.set_state_and_action(uuid, "not_in_anki", "add")
+            deck = _deck_from_path(fp, vault_path)
+            diff["add"].append({
+                "uuid":      uuid,
+                "note_type": note_type,
+                "deck_name": deck,
+                "field_1":   f1_raw,
+                "field_2":   f2_raw,
+                "tags":      _parse_tags(note.get("tags")),
+                "file_path": fp,
+            })
+            continue
+
         print(f"\n{'─'*60}")
         print(f"Review {i}/{total} — {note_type}  [{action}]")
         if fp:
@@ -644,19 +666,16 @@ def resolve_review(db: NoteDB, diff: dict, vault_path: str) -> dict:
         if f2_disp:
             print(f"  Vault F2: {f2_disp}")
 
-        if candidates:
-            for j, c in enumerate(candidates, 1):
-                cf1  = _strip_html(c["field_1"])
-                cf2  = _strip_html(c.get("field_2") or "")
-                deck = c.get("deck_name") or ""
-                line = f"  [{j}] Anki {c['anki_id']}: {cf1}"
-                if cf2:
-                    line += f" / {cf2}"
-                if deck:
-                    line += f"  [{deck}]"
-                print(line)
-        else:
-            print("  (no candidates found — may have changed since last scan)")
+        for j, c in enumerate(candidates, 1):
+            cf1  = _strip_html(c["field_1"])
+            cf2  = _strip_html(c.get("field_2") or "")
+            deck = c.get("deck_name") or ""
+            line = f"  [{j}] Anki {c['anki_id']}: {cf1}"
+            if cf2:
+                line += f" / {cf2}"
+            if deck:
+                line += f"  [{deck}]"
+            print(line)
 
         print("  [a] Add as new card   [s] Skip this run")
 
@@ -893,8 +912,11 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="scan",
         description=(
             "Vault scanner, Anki snapshot, and diff manifest generator.\n\n"
-            "Vault scan runs by default when a vault path is resolvable.\n"
-            "Add --anki to snapshot Anki and generate anki_diff.json for write.py."
+            "The vault is the source of truth. The DB caches the previous vault\n"
+            "state (notes) and Anki state (anki_notes). Scanning updates the vault\n"
+            "snapshot; diff compares it to the Anki snapshot to produce write.py input.\n\n"
+            "Diff runs automatically after every vault scan when Anki snapshot data exists.\n"
+            "Use --anki to refresh the Anki snapshot (requires AnkiConnect running)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -908,8 +930,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--anki",
         action="store_true",
         help=(
-            "Also snapshot Anki and generate diff manifest (requires AnkiConnect). "
-            "When vault data exists, automatically produces anki_diff.json + anki_diff.md."
+            "Refresh the Anki snapshot from live AnkiConnect data (requires Anki running). "
+            "Run this after making changes directly in Anki to keep the DB in sync."
         ),
     )
     parser.add_argument(
@@ -935,15 +957,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Interactively resolve modified notes before writing the diff. "
             "Prompts: [u]pdate Anki / [s]kip / [r]evert DB to Anki."
-        ),
-    )
-    parser.add_argument(
-        "--resolve-review",
-        action="store_true",
-        dest="resolve_review",
-        help=(
-            "Interactively resolve notes queued for review (ambiguous similarity matches). "
-            "For each: choose a candidate to link, add as new card, or skip."
         ),
     )
     return parser
@@ -973,40 +986,32 @@ def main() -> None:
     if args.anki:
         scan_anki(db)
 
-        vault_count = db._conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
-        anki_count  = db._conn.execute("SELECT COUNT(*) FROM anki_notes").fetchone()[0]
+    vault_count = db._conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+    anki_count  = db._conn.execute("SELECT COUNT(*) FROM anki_notes").fetchone()[0]
 
-        if not vault_count:
-            print("\n[diff] No vault notes in DB — skipping diff.")
-        elif not anki_count:
-            print("\n[diff] No Anki snapshot in DB — skipping diff.")
-        else:
-            print("\n[diff] Generating diff manifest…")
-            diff = build_diff(db, vault_path)
+    if not vault_count:
+        print("\n[diff] No vault notes in DB — skipping diff.")
+    elif not anki_count:
+        print("\n[diff] No Anki snapshot in DB — run with --anki first to snapshot Anki.")
+    else:
+        print("\n[diff] Generating diff manifest…")
+        diff = build_diff(db, vault_path)
 
-            if args.resolve_review:
-                diff = resolve_review(db, diff, vault_path)
+        diff = resolve_review(db, diff, vault_path)
 
-            if args.resolve:
-                diff = resolve_modifications(diff, db)
+        if args.resolve:
+            diff = resolve_modifications(diff, db)
 
-            pending_review = len(db.get_review_queue())
+        total = sum(len(v) for v in diff.values())
+        print(
+            f"\n[diff] add={len(diff['add'])}, update={len(diff['update'])}, "
+            f"retype={len(diff.get('retype', []))}, restale={len(diff['restale'])}, "
+            f"modify_deck={len(diff.get('modify_deck', []))}, "
+            f"orphan={len(diff['orphan'])}, stale={len(diff['stale'])}  (total={total})"
+        )
 
-            total = sum(len(v) for v in diff.values())
-            print(
-                f"\n[diff] add={len(diff['add'])}, update={len(diff['update'])}, "
-                f"retype={len(diff.get('retype', []))}, restale={len(diff['restale'])}, "
-                f"modify_deck={len(diff.get('modify_deck', []))}, "
-                f"orphan={len(diff['orphan'])}, stale={len(diff['stale'])}  (total={total})"
-            )
-            if pending_review:
-                print(
-                    f"[diff] {pending_review} note(s) need interactive resolution. "
-                    "Re-run with --resolve-review."
-                )
-
-            write_json(diff, vault_path, args.output_json)
-            write_markdown(diff, vault_path, args.output_md)
+        write_json(diff, vault_path, args.output_json)
+        write_markdown(diff, vault_path, args.output_md)
 
     db.close()
     print("\nDone.")

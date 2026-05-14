@@ -181,7 +181,7 @@ class NoteDB:
                  created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
-                anki_id     = excluded.anki_id,
+                anki_id     = COALESCE(excluded.anki_id, anki_id),
                 file_path   = excluded.file_path,
                 line_number = excluded.line_number,
                 note_type   = excluded.note_type,
