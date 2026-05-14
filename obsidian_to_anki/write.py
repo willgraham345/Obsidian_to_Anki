@@ -1,19 +1,16 @@
 """
-Executes Anki writes from a diff manifest produced by diff.py.
+Execute pending Anki changes from the anki_diff table.
 
 Usage (from obsidian_to_anki/):
-    uv run python write.py [--manifest FILE] [--execute]
+    uv run python write.py [--delete-orphans]
 
-    --manifest   JSON manifest from diff.py (default: anki_diff.json).
-    --execute    Actually write changes to Anki. Default is dry-run.
+    --delete-orphans   Also delete orphaned Anki notes (operation='delete').
+                       Off by default.
 
-Workflow
---------
-    uv run python scan.py --vault <vault>   # populate notes table
-    uv run python scan.py --anki            # populate anki_notes table
-    uv run python diff.py <vault>           # generate anki_diff.json + anki_diff.md
-    # review anki_diff.md, then:
-    uv run python write.py --execute        # push changes to Anki
+Workflow:
+    uv run python scan.py /vault --anki   # populate notes + anki_notes + anki_diff
+    uv run python show.py                 # preview pending changes
+    uv run python write.py                # push changes to Anki
 """
 
 from __future__ import annotations
@@ -34,8 +31,6 @@ from obsidian_to_anki.anki_connect import AnkiConnect  # noqa: E402
 from obsidian_to_anki.config import Config    # noqa: E402
 from obsidian_to_anki.db import NoteDB        # noqa: E402
 from obsidian_to_anki.utils import strip_html # noqa: E402
-
-_DEFAULT_MANIFEST = "anki_diff.json"
 
 # ── Known field names for common note types ────────────────────────────────────
 _KNOWN_FIELDS: dict[str, list[str]] = {
@@ -77,14 +72,13 @@ def _init() -> NoteDB:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _resolve_model_fields(ac: AnkiConnect, manifest: dict) -> None:
+def _resolve_model_fields(ac: AnkiConnect, entries: list[dict]) -> None:
     """Query AnkiConnect for real field names and update globals.FIELDS_DICT."""
     note_types: set[str] = set()
-    for key in ("add", "update", "restale"):
-        for entry in manifest.get(key, []):
-            nt = entry.get("note_type")
-            if nt:
-                note_types.add(nt)
+    for e in entries:
+        nt = e.get("note_type")
+        if nt and e.get("operation") in ("add", "update", "restale"):
+            note_types.add(nt)
 
     for nt in note_types:
         try:
@@ -92,11 +86,10 @@ def _resolve_model_fields(ac: AnkiConnect, manifest: dict) -> None:
             if fields:
                 globals.FIELDS_DICT[nt] = fields
         except Exception:
-            pass  # leave existing fallback in place
+            pass
 
 
 def _abs_file_path(fp: str) -> str:
-    """Return absolute path for a vault-relative or already-absolute file path."""
     if os.path.isabs(fp):
         return fp
     vault = globals.CONFIG_DATA.get("Vault", "")
@@ -106,23 +99,14 @@ def _abs_file_path(fp: str) -> str:
 def _find_existing_anki_note(
     db: NoteDB, field_1: str | None, note_type: str
 ) -> int | None:
-    """Look up anki_id from the local anki_notes snapshot for matching note.
-
-    Tries exact HTML match first, then plain-text fallback (Anki may
-    normalise HTML on storage). Returns anki_id when exactly one candidate
-    found; None if zero or ambiguous.
-    """
     if field_1 is None:
         return None
 
-    # Pass 1: exact HTML match
     rows = db._conn.execute(
         "SELECT anki_id FROM anki_notes WHERE note_type = ? AND field_1 = ?",
         (note_type, field_1),
     ).fetchall()
     if rows:
-        # Multiple identical entries in Anki snapshot (Anki duplicates) — pick
-        # the one not already claimed by another vault note, else first available.
         claimed = {
             r["anki_id"] for r in db._conn.execute(
                 "SELECT anki_id FROM notes WHERE anki_id IS NOT NULL"
@@ -131,7 +115,6 @@ def _find_existing_anki_note(
         unclaimed = [r["anki_id"] for r in rows if r["anki_id"] not in claimed]
         return unclaimed[0] if unclaimed else rows[0]["anki_id"]
 
-    # Pass 2: plaintext fallback (Anki may normalise HTML on storage)
     plain = strip_html(field_1)
     if not plain:
         return None
@@ -161,62 +144,24 @@ def _field_map(note_type: str, field_1: str | None, field_2: str | None) -> dict
     return result
 
 
-# ── Frontmatter helpers ────────────────────────────────────────────────────────
-
-_FM_RE = re.compile(r'^---\n(.*?)\n---\n', re.DOTALL)
-
-
-def _read_frontmatter_sync(file_path: str) -> dict[str, int]:
-    """Return anki_sync dict from YAML frontmatter, or {} if absent."""
+def _parse_tags(raw) -> list:
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
     try:
-        with open(file_path, encoding="utf-8") as fh:
-            content = fh.read()
-    except OSError:
-        return {}
-    m = _FM_RE.match(content)
-    if not m:
-        return {}
-    try:
-        fm = yaml.safe_load(m.group(1)) or {}
-    except yaml.YAMLError:
-        return {}
-    return {str(k): int(v) for k, v in fm.get("anki_sync", {}).items()}
-
-
-def _write_frontmatter_sync(file_path: str, sync_map: dict[str, int]) -> None:
-    """Upsert anki_sync into the file's YAML frontmatter (preserves other keys)."""
-    with open(file_path, encoding="utf-8") as fh:
-        content = fh.read()
-
-    m = _FM_RE.match(content)
-    if m:
-        try:
-            fm = yaml.safe_load(m.group(1)) or {}
-        except yaml.YAMLError:
-            fm = {}
-        body = content[m.end():]
-    else:
-        fm = {}
-        body = content
-
-    fm.setdefault("anki_sync", {})
-    fm["anki_sync"].update(sync_map)
-
-    fm_str = yaml.safe_dump(fm, default_flow_style=False, allow_unicode=True).rstrip()
-    new_content = f"---\n{fm_str}\n---\n{body}"
-
-    with open(file_path, "w", encoding="utf-8") as fh:
-        fh.write(new_content)
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 
 # ── Execute ────────────────────────────────────────────────────────────────────
 
-def _ensure_decks(ac: AnkiConnect, manifest: dict) -> None:
-    """Create any decks referenced in the manifest that don't yet exist."""
+def _ensure_decks(ac: AnkiConnect, entries: list[dict]) -> None:
     decks: set[str] = set()
-    for key in ("add", "update", "restale"):
-        for entry in manifest.get(key, []):
-            d = entry.get("deck_name")
+    for e in entries:
+        if e.get("operation") in ("add", "update", "restale"):
+            d = e.get("deck_name")
             if d:
                 decks.add(d)
     for deck in decks:
@@ -226,29 +171,37 @@ def _ensure_decks(ac: AnkiConnect, manifest: dict) -> None:
             print(f"[warn] createDeck {deck!r}: {exc}")
 
 
-def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = False) -> dict:
-    results = {"added": 0, "updated": 0, "re_typed": 0, "re_added": 0, "reconciled": 0, "deleted": 0, "deck_changed": 0, "errors": []}
-    _ensure_decks(ac, manifest)
+def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
+    entries = db.get_diff_entries()
+    results = {
+        "added": 0, "updated": 0, "re_typed": 0, "re_added": 0,
+        "reconciled": 0, "deleted": 0, "deck_changed": 0, "errors": [],
+    }
 
-    # file_path → {uuid: anki_id} for frontmatter writes
-    fm_updates: dict[str, dict[str, int]] = {}
+    add_entries    = [e for e in entries if e["operation"] in ("add", "restale")]
+    update_entries = [e for e in entries if e["operation"] == "update"]
+    retype_entries = [e for e in entries if e["operation"] == "retype"]
+    deck_entries   = [e for e in entries if e["operation"] == "move_deck"]
+    orphan_entries = [e for e in entries if e["operation"] == "delete"]
 
-    # stale → treat as add after clearing anki_id in DB
-    for entry in manifest.get("restale", []):
-        uuid = entry.get("uuid")
-        if uuid:
+    _ensure_decks(ac, add_entries)
+
+    # restale: clear stale anki_id from vault notes table before re-adding
+    for e in add_entries:
+        if e["operation"] == "restale":
+            uuid = e["id"]
             db._conn.execute("UPDATE notes SET anki_id = NULL WHERE id = ?", (uuid,))
-            db._conn.commit()
-        manifest.setdefault("_restale_add", []).append(entry)
+    if any(e["operation"] == "restale" for e in add_entries):
+        db._conn.commit()
 
-    add_entries = manifest.get("add", []) + manifest.get("_restale_add", [])
-    is_restale  = {id(e) for e in manifest.get("_restale_add", [])}
+    is_restale = {e["id"] for e in add_entries if e["operation"] == "restale"}
 
     for entry in add_entries:
+        entry_id  = entry["id"]
         note_type = entry.get("note_type", "")
         deck_name = entry.get("deck_name") or globals.UNMATCHED_DECK
         fields    = _field_map(note_type, entry.get("field_1"), entry.get("field_2"))
-        tags      = entry.get("tags") or []
+        tags      = _parse_tags(entry.get("tags"))
         try:
             new_id = ac.invoke("addNote", note={
                 "deckName":  deck_name,
@@ -257,31 +210,26 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
                 "tags":      tags,
                 "options":   {"allowDuplicate": False},
             })
-            if new_id and entry.get("uuid"):
-                db.mark_synced(entry["uuid"], new_id)
-                db.clear_recommended_action(entry["uuid"])
-                fp = entry.get("file_path")
-                if fp:
-                    fm_updates.setdefault(fp, {})[entry["uuid"]] = new_id
-            if id(entry) in is_restale:
+            if new_id:
+                db.mark_synced(entry_id, new_id)
+                db.clear_recommended_action(entry_id)
+            db.delete_diff_entry(entry_id)
+            if entry_id in is_restale:
                 results["re_added"] += 1
             else:
                 results["added"] += 1
         except Exception as exc:
-            if "duplicate" in str(exc).lower() and entry.get("uuid"):
+            if "duplicate" in str(exc).lower():
                 existing_id = _find_existing_anki_note(db, entry.get("field_1"), note_type)
                 if existing_id:
-                    db.mark_synced(entry["uuid"], existing_id)
-                    db.clear_recommended_action(entry["uuid"])
-                    fp = entry.get("file_path")
-                    if fp:
-                        fm_updates.setdefault(fp, {})[entry["uuid"]] = existing_id
+                    db.mark_synced(entry_id, existing_id)
+                    db.clear_recommended_action(entry_id)
+                    db.delete_diff_entry(entry_id)
                     results["reconciled"] += 1
                     continue
             label = (entry.get("field_1") or "")[:40]
             results["errors"].append(f"addNote ({label!r}): {exc}")
 
-    update_entries = manifest.get("update", [])
     update_total = len(update_entries)
     for i, entry in enumerate(update_entries, 1):
         if i % 25 == 0 or i == update_total:
@@ -294,34 +242,28 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
         try:
             ac.invoke("updateNoteFields", note={"id": anki_id, "fields": fields})
             db.update_anki_note_fields(anki_id, entry.get("field_1"), entry.get("field_2"))
-            # Move to correct deck if it has changed
             deck_name = entry.get("deck_name")
             if deck_name:
                 note_info = ac.invoke("notesInfo", notes=[anki_id])
                 card_ids = note_info[0].get("cards", []) if note_info else []
                 if card_ids:
                     ac.invoke("changeDeck", cards=card_ids, deck=deck_name)
+            db.clear_recommended_action(entry["id"])
+            db.delete_diff_entry(entry["id"])
             results["updated"] += 1
-            fp = entry.get("file_path")
-            uuid = entry.get("uuid")
-            if uuid:
-                db.clear_recommended_action(uuid)
-            if fp and uuid:
-                fm_updates.setdefault(fp, {})[uuid] = anki_id
         except Exception as exc:
             results["errors"].append(f"updateNoteFields (id={anki_id}): {exc}")
 
-    retype_entries = manifest.get("retype", [])
     retype_total = len(retype_entries)
     for i, entry in enumerate(retype_entries, 1):
         if i % 25 == 0 or i == retype_total:
             print(f"  retype {i}/{retype_total}…")
         old_anki_id = entry.get("anki_id")
-        uuid        = entry.get("uuid")
+        entry_id    = entry["id"]
         note_type   = entry.get("note_type", "")
         deck_name   = entry.get("deck_name") or globals.UNMATCHED_DECK
         fields      = _field_map(note_type, entry.get("field_1"), entry.get("field_2"))
-        tags        = entry.get("tags") or []
+        tags        = _parse_tags(entry.get("tags"))
         try:
             if old_anki_id:
                 ac.invoke("deleteNotes", notes=[old_anki_id])
@@ -332,20 +274,18 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
                 "tags":      tags,
                 "options":   {"allowDuplicate": False},
             })
-            if new_id and uuid:
-                db.mark_synced(uuid, new_id)
-                db.clear_recommended_action(uuid)
-                fp = entry.get("file_path")
-                if fp:
-                    fm_updates.setdefault(fp, {})[uuid] = new_id
+            if new_id:
+                db.mark_synced(entry_id, new_id)
+                db.clear_recommended_action(entry_id)
+            db.delete_diff_entry(entry_id)
             results["re_typed"] += 1
         except Exception as exc:
             label = (entry.get("field_1") or "")[:40]
             results["errors"].append(f"retype ({label!r}): {exc}")
 
-    for entry in manifest.get("modify_deck", []):
-        anki_id = entry.get("anki_id")
-        deck_name = entry.get("vault_deck")
+    for entry in deck_entries:
+        anki_id   = entry.get("anki_id")
+        deck_name = entry.get("deck_name")
         if not anki_id or not deck_name:
             continue
         try:
@@ -353,29 +293,24 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
             card_ids = note_info[0].get("cards", []) if note_info else []
             if card_ids:
                 ac.invoke("changeDeck", cards=card_ids, deck=deck_name)
+            db.clear_recommended_action(entry["id"])
+            db.delete_diff_entry(entry["id"])
             results["deck_changed"] += 1
-            uuid = entry.get("uuid")
-            if uuid:
-                db.clear_recommended_action(uuid)
         except Exception as exc:
             results["errors"].append(f"changeDeck (id={anki_id}): {exc}")
 
-    orphan_ids = [e["anki_id"] for e in manifest.get("orphan", []) if e.get("anki_id")]
+    orphan_ids = [e["anki_id"] for e in orphan_entries if e.get("anki_id")]
     if orphan_ids:
         if delete_orphans:
             try:
                 ac.invoke("deleteNotes", notes=orphan_ids)
+                for e in orphan_entries:
+                    db.delete_diff_entry(e["id"])
                 results["deleted"] += len(orphan_ids)
             except Exception as exc:
                 results["errors"].append(f"deleteNotes ({len(orphan_ids)} notes): {exc}")
         else:
             print(f"[warn] Skipped deletion of {len(orphan_ids)} orphan(s) — pass --delete-orphans to enable")
-
-    # NOTE: frontmatter writes disabled — writing anki_sync to vault files
-    # shifts note line numbers, causing UUID location-lookup failures on next
-    # scan and creating a not_in_anki oscillation loop.
-    # The DB is the authoritative source; frontmatter recovery can be re-enabled
-    # once the line-number drift issue is resolved.
 
     return results
 
@@ -386,28 +321,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="write",
         description=(
-            "Execute Anki writes from a diff manifest (anki_diff.json).\n\n"
-            "Default: dry-run — shows what would be done without touching Anki.\n"
-            "Use --execute to push changes."
+            "Execute pending Anki changes from the anki_diff table.\n\n"
+            "Run scan.py first to populate the diff table, then show.py to\n"
+            "preview, then this script to apply."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--manifest",
-        default=_DEFAULT_MANIFEST,
-        metavar="FILE",
-        help=f"JSON manifest from diff.py (default: {_DEFAULT_MANIFEST}).",
-    )
-    parser.add_argument(
-        "--execute",
-        action="store_true",
-        help="Actually write changes to Anki.",
     )
     parser.add_argument(
         "--delete-orphans",
         action="store_true",
         dest="delete_orphans",
-        help="Also delete orphaned Anki notes listed in the manifest. Requires --execute.",
+        help="Also delete orphaned Anki notes (operation='delete' in anki_diff).",
     )
     return parser
 
@@ -416,36 +340,23 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    if not os.path.exists(args.manifest):
-        print(f"Manifest not found: {args.manifest}")
-        print("Run: uv run python diff.py <vault_path>")
-        sys.exit(1)
+    db = _init()
 
-    with open(args.manifest, encoding="utf-8") as fh:
-        manifest = json.load(fh)
-
-    add_count     = len(manifest.get("add", []))
-    update_count  = len(manifest.get("update", []))
-    restale_count = len(manifest.get("restale", []))
-    orphan_count  = len(manifest.get("orphan", []))
-    total         = add_count + update_count + restale_count + orphan_count
-
-    print(f"Manifest: {args.manifest}")
-    print(f"Generated: {manifest.get('generated', 'unknown')}")
-    print(f"Mode: {'EXECUTE' if args.execute else 'DRY-RUN'}")
-    print(f"\nPending: add={add_count}, update={update_count}, "
-          f"restale={restale_count}, orphan={orphan_count}  (total={total})")
-
-    if not args.execute:
-        print("\nDry-run — no changes made. Pass --execute to write.")
+    summary = db.get_diff_summary()
+    if not summary:
+        print("Nothing pending — anki_diff table is empty. Run scan.py first.")
+        db.close()
         return
 
-    if total == 0:
-        print("\nNothing to do.")
-        return
+    total = sum(r["n"] for r in summary)
+    print("Pending changes:")
+    for row in summary:
+        print(f"  {row['operation']:12s}  {row['n']:>4d}")
+    print(f"  {'total':12s}  {total:>4d}")
 
+    orphan_count = next((r["n"] for r in summary if r["operation"] == "delete"), 0)
     if orphan_count and not args.delete_orphans:
-        print(f"\n[warn] Manifest has {orphan_count} orphan(s). Pass --delete-orphans to delete them.")
+        print(f"\n[warn] {orphan_count} orphan(s) queued for deletion — pass --delete-orphans to apply them")
 
     print("\nConnecting to Anki…")
     try:
@@ -454,11 +365,13 @@ def main() -> None:
     except (URLError, Exception) as exc:
         print(f"ERROR — cannot reach Anki: {exc}")
         print("Make sure Anki is running with AnkiConnect installed.")
+        db.close()
         sys.exit(1)
 
-    db = _init()
-    _resolve_model_fields(ac, manifest)
-    results = execute(manifest, ac, db, delete_orphans=args.delete_orphans)
+    entries = db.get_diff_entries()
+    _resolve_model_fields(ac, entries)
+
+    results = execute(db, ac, delete_orphans=args.delete_orphans)
     db.close()
 
     print(f"\nDone — added={results['added']}, updated={results['updated']}, "

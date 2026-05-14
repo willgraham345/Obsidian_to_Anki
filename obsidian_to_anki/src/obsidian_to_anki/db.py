@@ -21,6 +21,18 @@ def _strip_stem(text: str | None) -> str | None:
     return text[:idx] if idx >= 0 else text
 
 
+def _strip_obsidian_link(text: str | None) -> str | None:
+    """Remove <br><a href="obsidian://...">...</a> vault link from field_1.
+
+    Used in content comparisons so that notes match even when the source file
+    was moved (which changes the embedded obsidian:// URL).
+    """
+    if text is None:
+        return None
+    idx = text.find('<br><a href="obsidian://')
+    return text[:idx] if idx >= 0 else text
+
+
 class NoteDB:
     """SQLite-backed store for parsed notes, file hashes, and added media."""
 
@@ -75,6 +87,19 @@ class NoteDB:
                 deck_name     TEXT,
                 mod_timestamp INTEGER,
                 synced_at     TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS anki_diff (
+                id           TEXT PRIMARY KEY,
+                operation    TEXT NOT NULL,
+                note_type    TEXT,
+                deck_name    TEXT,
+                field_1      TEXT,
+                field_2      TEXT,
+                tags         TEXT,
+                anki_id      INTEGER,
+                file_path    TEXT,
+                created_at   TEXT NOT NULL
             );
 
             DROP VIEW IF EXISTS note_comparison;
@@ -148,7 +173,90 @@ class NoteDB:
         if "atomic_id" not in fh_cols:
             self._conn.execute("ALTER TABLE file_hashes ADD COLUMN atomic_id TEXT")
 
+        # anki_diff table added post-initial-schema
+        existing_tables = {r[0] for r in self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        if "anki_diff" not in existing_tables:
+            self._conn.execute("""
+                CREATE TABLE anki_diff (
+                    id           TEXT PRIMARY KEY,
+                    operation    TEXT NOT NULL,
+                    note_type    TEXT,
+                    deck_name    TEXT,
+                    field_1      TEXT,
+                    field_2      TEXT,
+                    tags         TEXT,
+                    anki_id      INTEGER,
+                    file_path    TEXT,
+                    created_at   TEXT NOT NULL
+                )
+            """)
+
+        self._dedup_notes()
+        self._recover_anki_ids()
         self._conn.commit()
+
+    def _dedup_notes(self) -> int:
+        """Delete duplicate notes accumulated by line-shift cascade rescans.
+
+        For each group of rows sharing (file_path, note_type, field_1, field_2,
+        deck_name), keep the row with an anki_id (highest anki_id wins when
+        multiple exist) and delete the rest. Returns number of rows deleted.
+        """
+        dupes = self._conn.execute("""
+            SELECT file_path, note_type, field_1, field_2, deck_name
+            FROM notes
+            GROUP BY file_path, note_type, field_1, field_2, deck_name
+            HAVING COUNT(*) > 1
+        """).fetchall()
+
+        deleted = 0
+        for row in dupes:
+            group = self._conn.execute("""
+                SELECT id, anki_id FROM notes
+                WHERE file_path IS ? AND note_type IS ? AND field_1 IS ?
+                  AND field_2 IS ? AND deck_name IS ?
+                ORDER BY (anki_id IS NOT NULL) DESC, anki_id DESC, updated_at DESC
+            """, (row[0], row[1], row[2], row[3], row[4])).fetchall()
+            keep_id = group[0]["id"]
+            stale_ids = [r["id"] for r in group[1:]]
+            for sid in stale_ids:
+                self._conn.execute("DELETE FROM notes WHERE id = ?", (sid,))
+                deleted += 1
+
+        if deleted:
+            print(f"[db] Deduped {deleted} stale note record(s)")
+        return deleted
+
+    def _recover_anki_ids(self) -> int:
+        """Link vault notes that lost their anki_id to matching Anki snapshot entries.
+
+        For each note with anki_id IS NULL, calls find_anki_note_by_content.
+        Skips notes queued for interactive resolution (review/link) since those
+        have already been flagged as ambiguous by similarity_search.
+        Returns number of links made.
+        """
+        unlinked = self._conn.execute("""
+            SELECT id, note_type, field_1, field_2
+            FROM notes
+            WHERE anki_id IS NULL
+              AND (recommended_action IS NULL
+                   OR recommended_action NOT IN ('review', 'link'))
+        """).fetchall()
+
+        linked = 0
+        for row in unlinked:
+            recovered = self.find_anki_note_by_content(
+                row["note_type"], row["field_1"], row["field_2"]
+            )
+            if recovered is not None:
+                self.mark_synced(row["id"], recovered)
+                linked += 1
+
+        if linked:
+            print(f"[db] Recovered {linked} anki_id(s) via snapshot content match")
+        return linked
 
     def close(self):
         self._conn.close()
@@ -212,24 +320,46 @@ class NoteDB:
     def get_note_by_location(
         self, file_path: str, line_number: int, note_type: str
     ) -> dict | None:
+        # When duplicates exist at the same location (from line-shift cascade), prefer
+        # the row that already has an anki_id, then most recently updated.
         row = self._conn.execute(
-            "SELECT * FROM notes WHERE file_path = ? AND line_number = ? AND note_type = ?",
+            """SELECT * FROM notes
+               WHERE file_path = ? AND line_number = ? AND note_type = ?
+               ORDER BY (anki_id IS NOT NULL) DESC, updated_at DESC
+               LIMIT 1""",
             (file_path, line_number, note_type),
         ).fetchone()
         return dict(row) if row else None
 
     def get_note_by_content(
-        self, file_path: str, note_type: str, field_1: str | None
+        self,
+        file_path: str,
+        note_type: str,
+        field_1: str | None,
+        field_2: str | None = None,
+        deck_name: str | None = None,
     ) -> dict | None:
         """Fallback lookup by content when line numbers have shifted.
 
-        Returns the single matching note if exactly one exists, else None.
+        Matches on file_path + note_type + field_1 + field_2 + deck_name.
+        When duplicates exist (accumulated from previous failed rescans), prefers
+        the row with anki_id so the sync link is not lost.
         """
         rows = self._conn.execute(
-            "SELECT * FROM notes WHERE file_path = ? AND note_type = ? AND field_1 IS ?",
-            (file_path, note_type, field_1),
+            """SELECT * FROM notes
+               WHERE file_path = ? AND note_type = ?
+                 AND field_1 IS ? AND field_2 IS ? AND deck_name IS ?
+               ORDER BY (anki_id IS NOT NULL) DESC, updated_at DESC""",
+            (file_path, note_type, field_1, field_2, deck_name),
         ).fetchall()
-        return dict(rows[0]) if len(rows) == 1 else None
+        if not rows:
+            return None
+        # Prefer the unique anki_id row; if multiple rows share the same anki_id
+        # (or none have one), return the highest-priority row from the ORDER BY.
+        with_id = [r for r in rows if r["anki_id"] is not None]
+        if len(with_id) == 1:
+            return dict(with_id[0])
+        return dict(rows[0])
 
     def delete_note(self, uuid: str) -> None:
         self._conn.execute("DELETE FROM notes WHERE id = ?", (uuid,))
@@ -308,6 +438,43 @@ class NoteDB:
             row["anki_id"] for row in orphans
             if _strip_stem(row["field_1"]) == stripped_f1 and row["field_2"] == field_2
         ]
+
+    def find_anki_note_by_content(
+        self,
+        note_type: str,
+        field_1: str | None,
+        field_2: str | None,
+    ) -> int | None:
+        """Return anki_id when exactly one anki_note matches note_type + field content.
+
+        Used to recover anki_id for vault notes whose DB link was lost (e.g. from a
+        line-number cascade or file move). Strips both the <br><b>...</b> file-stem
+        suffix and the <br><a href="obsidian://..."> vault link from field_1 before
+        comparing, so the match is stable across file renames and vault moves.
+
+        Two-stage match:
+        1. field_1 + field_2 (exact) — handles unmodified notes
+        2. field_1 only — handles notes where the user updated field_2 (back field);
+           the comparison view will surface the diff as modify_field_2 rather than add
+
+        Returns None when no unique match is found at either stage.
+        """
+        core_f1 = _strip_obsidian_link(_strip_stem(field_1))
+        rows = self._conn.execute(
+            "SELECT anki_id, field_1, field_2 FROM anki_notes WHERE note_type = ?",
+            (note_type,),
+        ).fetchall()
+        stripped = [
+            (r["anki_id"], _strip_obsidian_link(_strip_stem(r["field_1"])), r["field_2"])
+            for r in rows
+        ]
+        # Stage 1: field_1 + field_2 exact match
+        matches = [aid for aid, sf1, f2 in stripped if sf1 == core_f1 and f2 == field_2]
+        if len(matches) == 1:
+            return matches[0]
+        # Stage 2: field_1 only (back field may have been updated in vault)
+        matches = [aid for aid, sf1, _ in stripped if sf1 == core_f1]
+        return matches[0] if len(matches) == 1 else None
 
     def revert_note_to_anki(self, uuid: str) -> bool:
         """Overwrite vault note fields in DB with current Anki snapshot.
@@ -510,4 +677,71 @@ class NoteDB:
             query += " WHERE status != 'synced'"
         query += " ORDER BY status, note_type, file_path"
         rows = self._conn.execute(query).fetchall()
+        return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Diff table (anki_diff)
+    # ------------------------------------------------------------------
+
+    def upsert_diff_entry(
+        self,
+        id: str,
+        operation: str,
+        note_type: str | None,
+        deck_name: str | None,
+        field_1: str | None,
+        field_2: str | None,
+        tags: list | None,
+        anki_id: int | None,
+        file_path: str | None,
+    ) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO anki_diff
+                (id, operation, note_type, deck_name, field_1, field_2,
+                 tags, anki_id, file_path, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                operation  = excluded.operation,
+                note_type  = excluded.note_type,
+                deck_name  = excluded.deck_name,
+                field_1    = excluded.field_1,
+                field_2    = excluded.field_2,
+                tags       = excluded.tags,
+                anki_id    = excluded.anki_id,
+                file_path  = excluded.file_path
+            """,
+            (
+                id, operation, note_type, deck_name, field_1, field_2,
+                json.dumps(tags) if tags is not None else None,
+                anki_id, file_path, _now(),
+            ),
+        )
+        self._conn.commit()
+
+    def get_diff_entries(self, operation: str | None = None) -> list[dict]:
+        if operation:
+            rows = self._conn.execute(
+                "SELECT * FROM anki_diff WHERE operation = ? ORDER BY file_path",
+                (operation,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM anki_diff ORDER BY operation, file_path"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_diff_entry(self, id: str) -> None:
+        self._conn.execute("DELETE FROM anki_diff WHERE id = ?", (id,))
+        self._conn.commit()
+
+    def clear_diff(self) -> None:
+        self._conn.execute("DELETE FROM anki_diff")
+        self._conn.commit()
+
+    def get_diff_summary(self) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT operation, COUNT(*) AS n FROM anki_diff"
+            " GROUP BY operation ORDER BY operation"
+        ).fetchall()
         return [dict(r) for r in rows]

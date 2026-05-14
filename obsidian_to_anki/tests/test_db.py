@@ -476,25 +476,28 @@ class TestGetNoteByContent:
 
     def test_returns_single_match(self, db):
         _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Basic", field_1="<p>Q</p>")
-        row = db.get_note_by_content("deck/a.md", "Basic", "<p>Q</p>")
+        row = db.get_note_by_content("deck/a.md", "Basic", "<p>Q</p>", "<p>Back</p>", "Default")
         assert row is not None
         assert row["id"] == "u1"
 
     def test_returns_none_when_no_match(self, db):
-        assert db.get_note_by_content("deck/a.md", "Basic", "<p>Q</p>") is None
+        assert db.get_note_by_content("deck/a.md", "Basic", "<p>Q</p>", "<p>Back</p>", "Default") is None
 
-    def test_returns_none_when_ambiguous(self, db):
+    def test_picks_most_recent_when_all_unsynced_duplicates(self, db):
+        # Both rows have no anki_id — return the most recently updated to stop accumulation.
         _make_note(db, uuid="u1", file_path="deck/a.md", line_number=1, note_type="Basic", field_1="<p>Q</p>")
         _make_note(db, uuid="u2", file_path="deck/a.md", line_number=2, note_type="Basic", field_1="<p>Q</p>")
-        assert db.get_note_by_content("deck/a.md", "Basic", "<p>Q</p>") is None
+        row = db.get_note_by_content("deck/a.md", "Basic", "<p>Q</p>", "<p>Back</p>", "Default")
+        assert row is not None
+        assert row["id"] in ("u1", "u2")
 
     def test_note_type_scoped(self, db):
         _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Basic", field_1="<p>Q</p>")
-        assert db.get_note_by_content("deck/a.md", "Cloze", "<p>Q</p>") is None
+        assert db.get_note_by_content("deck/a.md", "Cloze", "<p>Q</p>", "<p>Back</p>", "Default") is None
 
     def test_matches_null_field_1(self, db):
         _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Basic", field_1=None)
-        row = db.get_note_by_content("deck/a.md", "Basic", None)
+        row = db.get_note_by_content("deck/a.md", "Basic", None, "<p>Back</p>", "Default")
         assert row is not None
 
 
@@ -587,3 +590,187 @@ class TestGetComparisonSummary:
 
     def test_empty_db_returns_empty_list(self, db):
         assert db.get_comparison_summary() == []
+
+
+class TestRecoverAnkiIds:
+    """_recover_anki_ids links vault notes with anki_id=NULL via snapshot content match."""
+
+    def test_links_note_with_matching_snapshot(self, db):
+        _make_note(db, uuid="r-1", anki_id=None, note_type="Basic",
+                   field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=8001, note_type="Basic",
+                        field_1="<p>Q</p>", field_2="<p>A</p>")
+        linked = db._recover_anki_ids()
+        assert linked == 1
+        assert db.get_note("r-1")["anki_id"] == 8001
+
+    def test_skips_when_no_snapshot_match(self, db):
+        _make_note(db, uuid="r-2", anki_id=None, note_type="Basic",
+                   field_1="<p>New note</p>", field_2="<p>Back</p>")
+        _make_anki_note(db, anki_id=8002, note_type="Basic",
+                        field_1="<p>Different</p>", field_2="<p>Back</p>")
+        linked = db._recover_anki_ids()
+        assert linked == 0
+        assert db.get_note("r-2")["anki_id"] is None
+
+    def test_skips_ambiguous_matches(self, db):
+        _make_note(db, uuid="r-3", anki_id=None, note_type="Basic",
+                   field_1="<p>Dup</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=8003, note_type="Basic",
+                        field_1="<p>Dup</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=8004, note_type="Basic",
+                        field_1="<p>Dup</p>", field_2="<p>A</p>")
+        linked = db._recover_anki_ids()
+        assert linked == 0
+
+    def test_skips_review_queue_items(self, db):
+        _make_note(db, uuid="r-4", anki_id=None, note_type="Basic",
+                   field_1="<p>Q</p>", field_2="<p>A</p>")
+        db.set_state_and_action("r-4", "not_in_anki", "review")
+        _make_anki_note(db, anki_id=8005, note_type="Basic",
+                        field_1="<p>Q</p>", field_2="<p>A</p>")
+        linked = db._recover_anki_ids()
+        assert linked == 0
+
+    def test_strips_stem_and_obsidian_link_before_match(self, db):
+        vault_f1 = '<p>Q</p><br><b>stem</b>'
+        anki_f1 = '<p>Q</p>'
+        _make_note(db, uuid="r-5", anki_id=None, note_type="Basic",
+                   field_1=vault_f1, field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=8006, note_type="Basic",
+                        field_1=anki_f1, field_2="<p>A</p>")
+        linked = db._recover_anki_ids()
+        assert linked == 1
+        assert db.get_note("r-5")["anki_id"] == 8006
+
+
+class TestAnkiDiff:
+
+    def test_upsert_and_get(self, db):
+        db.upsert_diff_entry(
+            id="uuid-1", operation="add", note_type="Basic",
+            deck_name="Default", field_1="<p>Q</p>", field_2="<p>A</p>",
+            tags=["tag1"], anki_id=None, file_path="deck/note.md",
+        )
+        entries = db.get_diff_entries()
+        assert len(entries) == 1
+        e = entries[0]
+        assert e["id"] == "uuid-1"
+        assert e["operation"] == "add"
+        assert e["note_type"] == "Basic"
+        assert e["field_1"] == "<p>Q</p>"
+
+    def test_tags_serialized(self, db):
+        import json
+        db.upsert_diff_entry(
+            id="uuid-tags", operation="add", note_type="Basic",
+            deck_name="Default", field_1="Q", field_2=None,
+            tags=["a", "b"], anki_id=None, file_path=None,
+        )
+        e = db.get_diff_entries()[0]
+        assert json.loads(e["tags"]) == ["a", "b"]
+
+    def test_get_by_operation(self, db):
+        db.upsert_diff_entry("u1", "add", "Basic", "D", "Q1", None, None, None, None)
+        db.upsert_diff_entry("u2", "update", "Basic", "D", "Q2", None, None, 9001, None)
+        adds = db.get_diff_entries(operation="add")
+        assert len(adds) == 1
+        assert adds[0]["id"] == "u1"
+
+    def test_upsert_overwrites(self, db):
+        db.upsert_diff_entry("u1", "add", "Basic", "D", "Old", None, None, None, None)
+        db.upsert_diff_entry("u1", "update", "Basic", "D", "New", None, None, 9001, None)
+        entries = db.get_diff_entries()
+        assert len(entries) == 1
+        assert entries[0]["operation"] == "update"
+        assert entries[0]["field_1"] == "New"
+
+    def test_delete_entry(self, db):
+        db.upsert_diff_entry("u1", "add", "Basic", "D", "Q", None, None, None, None)
+        db.delete_diff_entry("u1")
+        assert db.get_diff_entries() == []
+
+    def test_delete_nonexistent_noop(self, db):
+        db.delete_diff_entry("does-not-exist")  # should not raise
+
+    def test_clear_diff(self, db):
+        db.upsert_diff_entry("u1", "add", "Basic", "D", "Q1", None, None, None, None)
+        db.upsert_diff_entry("u2", "update", "Basic", "D", "Q2", None, None, 9001, None)
+        db.clear_diff()
+        assert db.get_diff_entries() == []
+
+    def test_get_diff_summary(self, db):
+        db.upsert_diff_entry("u1", "add", "Basic", "D", "Q1", None, None, None, None)
+        db.upsert_diff_entry("u2", "add", "Basic", "D", "Q2", None, None, None, None)
+        db.upsert_diff_entry("u3", "update", "Basic", "D", "Q3", None, None, 9001, None)
+        summary = db.get_diff_summary()
+        counts = {r["operation"]: r["n"] for r in summary}
+        assert counts["add"] == 2
+        assert counts["update"] == 1
+
+    def test_null_tags_stored_as_none(self, db):
+        db.upsert_diff_entry("u1", "add", "Basic", "D", "Q", None, None, None, None)
+        e = db.get_diff_entries()[0]
+        assert e["tags"] is None
+
+    def test_delete_operation_with_anki_id(self, db):
+        db.upsert_diff_entry(
+            id="delete:9999", operation="delete", note_type="Basic",
+            deck_name="Default", field_1="<p>Q</p>", field_2=None,
+            tags=None, anki_id=9999, file_path=None,
+        )
+        entries = db.get_diff_entries(operation="delete")
+        assert len(entries) == 1
+        assert entries[0]["anki_id"] == 9999
+
+
+class TestRescanPreservesAnkiId:
+    """Reproduce false-positive 'add' entries on --force rescan.
+
+    Root cause: _db_upsert_note has two lookup paths:
+    1. get_note_by_location — fails when line numbers shift
+    2. get_note_by_content  — returns None when >1 row matches (duplicate guard)
+    Both failing → new UUID → anki_id=None → not_in_anki → false positive.
+    """
+
+    def test_location_lookup_preserves_anki_id(self, db):
+        """Same file/line/type → location lookup must return existing record."""
+        _make_note(db, uuid="loc-sync", anki_id=99999, file_path="/vault/a.md",
+                   line_number=5, note_type="Basic",
+                   field_1="<p>Hello</p>", field_2="<p>World</p>", deck_name="Default")
+        existing = db.get_note_by_location("/vault/a.md", 5, "Basic")
+        assert existing is not None, "Location lookup failed"
+        assert existing["anki_id"] == 99999
+
+    def test_content_fallback_preserves_anki_id_after_line_shift(self, db):
+        """Line number shifted → content fallback must recover anki_id.
+
+        This test exposes the bug: if content fallback returns None (e.g. because
+        >1 row matches), a new UUID without anki_id is created → false positive.
+        """
+        _make_note(db, uuid="con-sync", anki_id=99999, file_path="/vault/a.md",
+                   line_number=5, note_type="Basic",
+                   field_1="<p>Hello</p>", field_2="<p>World</p>", deck_name="Default")
+        # Line shifted to 6 — location lookup will miss
+        existing = db.get_note_by_content("/vault/a.md", "Basic",
+                                          "<p>Hello</p>", "<p>World</p>", "Default")
+        assert existing is not None, "Content fallback failed — anki_id will be lost"
+        assert existing["anki_id"] == 99999
+
+    def test_content_fallback_recovers_anki_id_with_duplicate_rows(self, db):
+        """With duplicates, content fallback must prefer the row with anki_id.
+
+        Previous bug: returned None when count != 1, causing new UUID → false positive.
+        Fixed: ORDER BY anki_id IS NOT NULL DESC → returns the synced row.
+        """
+        _make_note(db, uuid="dup-old", anki_id=99999, file_path="/vault/a.md",
+                   line_number=5, note_type="Basic",
+                   field_1="<p>Hello</p>", field_2="<p>World</p>", deck_name="Default")
+        # Simulate a previous failed rescan that created a duplicate at a new line
+        _make_note(db, uuid="dup-new", anki_id=None, file_path="/vault/a.md",
+                   line_number=6, note_type="Basic",
+                   field_1="<p>Hello</p>", field_2="<p>World</p>", deck_name="Default")
+        result = db.get_note_by_content("/vault/a.md", "Basic",
+                                        "<p>Hello</p>", "<p>World</p>", "Default")
+        assert result is not None, "Content fallback must not return None with duplicates"
+        assert result["anki_id"] == 99999, "Must pick the row with anki_id"

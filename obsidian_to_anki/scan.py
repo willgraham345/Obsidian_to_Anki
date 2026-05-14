@@ -1,30 +1,22 @@
 """
-Vault scanner, Anki snapshot, and diff manifest generator.
+Vault scanner, Anki snapshot, and diff generator.
 
 The vault is the source of truth. The DB caches vault state (notes table) and
-Anki state (anki_notes table). Scanning updates the vault snapshot; diff then
-compares notes vs anki_notes to produce anki_diff.json for write.py.
-
-Diff runs automatically after every vault scan when Anki snapshot data exists.
-Use --anki to refresh the Anki snapshot (requires AnkiConnect on port 8765).
+Anki state (anki_notes table). Scanning updates the vault snapshot; diff
+compares notes vs anki_notes and writes pending changes to the anki_diff table.
 
 Usage (from obsidian_to_anki/):
     uv run python scan.py [vault_path] [--anki] [--force]
-                          [--output-json FILE] [--output-md FILE]
-                          [--resolve] [--resolve-review]
 
-    vault_path      Path to Obsidian vault (falls back to 'Vault path' in config).
-    --anki          Refresh Anki snapshot from live AnkiConnect data.
-    --force         Scan all vault files even if their hash is unchanged.
-    --output-json   JSON manifest consumed by write.py (default: anki_diff.json).
-    --output-md     Human-readable markdown preview (default: anki_diff.md).
-    --resolve       Interactively approve each modified note before writing diff.
-                    Review-queue resolution always runs automatically.
+    vault_path   Path to Obsidian vault (falls back to 'Vault path' in config).
+    --anki       Refresh Anki snapshot from live AnkiConnect data.
+    --force      Scan all vault files even if their hash is unchanged.
 
 Workflow:
-    uv run python scan.py /vault --anki   # refresh both snapshots → anki_diff.json
+    uv run python scan.py /vault --anki   # refresh both snapshots
     uv run python scan.py /vault          # re-scan vault only, diff from cached Anki
-    uv run python write.py --execute      # push changes to Anki
+    uv run python show.py                 # preview pending changes
+    uv run python write.py                # push changes to Anki
 """
 
 from __future__ import annotations
@@ -36,7 +28,7 @@ import os
 import re
 import sys
 import uuid as _uuid_mod
-from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from urllib.error import URLError
 
 import yaml
@@ -49,11 +41,6 @@ from obsidian_to_anki.anki_connect import AnkiConnect         # noqa: E402
 from obsidian_to_anki.config import Config                    # noqa: E402
 from obsidian_to_anki.db import NoteDB                        # noqa: E402
 from obsidian_to_anki.file import File                        # noqa: E402
-
-# ── Constants ──────────────────────────────────────────────────────────────────
-
-_DEFAULT_JSON = "anki_diff.json"
-_DEFAULT_MD   = "anki_diff.md"
 
 # ── Known field names for common note types ────────────────────────────────────
 _KNOWN_FIELDS: dict[str, list[str]] = {
@@ -92,7 +79,10 @@ def _init(db_path: str | None = None) -> tuple[NoteDB, Config]:
             fields_dict[note_type] = _KNOWN_FIELDS.get(note_type, ["Front", "Back"])
 
     globals.FIELDS_DICT = fields_dict
-    globals.EXISTING_IDS = []
+    globals.EXISTING_IDS = [
+        row["anki_id"]
+        for row in db._conn.execute("SELECT anki_id FROM anki_notes").fetchall()
+    ]
     globals.FILE_HASHES = {}
 
     _gen_regexp()
@@ -397,6 +387,14 @@ def _plain(text: str | None) -> str:
     return re.sub(r"<[^>]+>", "", text).replace("\n", " ").strip()
 
 
+def _content_ratio(a: str | None, b: str | None) -> float:
+    """Return 0–1 similarity between two field strings (plain-text, no HTML)."""
+    pa, pb = _plain(a), _plain(b)
+    if not pa and not pb:
+        return 1.0
+    return SequenceMatcher(None, pa, pb).ratio()
+
+
 def _lookup_uuid(db: NoteDB, row: dict) -> str | None:
     file_path = row.get("file_path")
     if not file_path:
@@ -429,7 +427,9 @@ def _parse_tags(raw: str | None) -> list[str]:
 
 
 def build_diff(db: NoteDB, vault_path: str) -> dict:
-    """Read note_comparison and stale notes, return structured diff dict."""
+    """Read note_comparison and stale notes, populate anki_diff table, return counts dict."""
+    db.clear_diff()
+
     rows = db.get_comparison_rows(exclude_synced=True)
     managed_types: set[str] = set(globals.CONFIG_DATA.get("ATOMICS", {}).keys())
 
@@ -449,19 +449,20 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
         if status in ("not_in_anki", "stale_id"):
             uuid = _lookup_uuid(db, r)
             fp = r.get("file_path")
-            # Skip notes queued for interactive resolution — user must run --resolve-review first
-            if uuid:
-                note = db.get_note(uuid)
-                if note and note.get("recommended_action") in ("review", "link"):
-                    continue
+            operation = "restale" if status == "stale_id" else "add"
+            entry_id = uuid or str(_uuid_mod.uuid4())
+            deck = _deck_from_path(fp, vault_path)
+            tags = _parse_tags(r.get("vault_tags"))
+            db.upsert_diff_entry(
+                id=entry_id, operation=operation,
+                note_type=r.get("note_type") or "", deck_name=deck,
+                field_1=r.get("vault_field_1"), field_2=r.get("vault_field_2"),
+                tags=tags, anki_id=None, file_path=fp,
+            )
             entry = {
-                "uuid":      uuid,
-                "note_type": r.get("note_type") or "",
-                "deck_name": _deck_from_path(fp, vault_path),
-                "field_1":   r.get("vault_field_1"),
-                "field_2":   r.get("vault_field_2"),
-                "tags":      _parse_tags(r.get("vault_tags")),
-                "file_path": fp,
+                "uuid": uuid, "note_type": r.get("note_type") or "",
+                "deck_name": deck, "field_1": r.get("vault_field_1"),
+                "field_2": r.get("vault_field_2"), "tags": tags, "file_path": fp,
             }
             if status == "stale_id":
                 diff["restale"].append(entry)
@@ -469,440 +470,104 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
                 diff["add"].append(entry)
 
         elif status in ("modify_fields", "modify_field_1", "modify_field_2"):
-            # Skip HTML-only diffs — Anki normalises stored HTML so vault and
-            # Anki raw values differ even when visible content is identical.
             if (_plain(r.get("vault_field_1")) == _plain(r.get("anki_field_1"))
                     and _plain(r.get("vault_field_2")) == _plain(r.get("anki_field_2"))):
                 continue
+            # Corrupt link: vault and Anki content share < 50% similarity — bad anki_id.
+            if _content_ratio(r.get("vault_field_1"), r.get("anki_field_1")) < 0.5:
+                uuid = _lookup_uuid(db, r)
+                if uuid:
+                    db.set_state_and_action(uuid, "not_in_anki", None)
+                continue
             uuid = _lookup_uuid(db, r)
             fp = r.get("file_path")
+            entry_id = uuid or str(_uuid_mod.uuid4())
+            deck = _deck_from_path(fp, vault_path)
+            db.upsert_diff_entry(
+                id=entry_id, operation="update",
+                note_type=r.get("note_type") or "", deck_name=deck,
+                field_1=r.get("vault_field_1"), field_2=r.get("vault_field_2"),
+                tags=None, anki_id=r.get("anki_id"), file_path=fp,
+            )
             diff["update"].append({
-                "uuid":        uuid,
-                "anki_id":     r.get("anki_id"),
-                "note_type":   r.get("note_type") or "",
-                "deck_name":   _deck_from_path(fp, vault_path),
-                "field_1":     r.get("vault_field_1"),
-                "field_2":     r.get("vault_field_2"),
-                "anki_field_1": r.get("anki_field_1"),
-                "anki_field_2": r.get("anki_field_2"),
-                "file_path":   fp,
+                "uuid": uuid, "anki_id": r.get("anki_id"),
+                "note_type": r.get("note_type") or "", "deck_name": deck,
+                "field_1": r.get("vault_field_1"), "field_2": r.get("vault_field_2"),
+                "anki_field_1": r.get("anki_field_1"), "anki_field_2": r.get("anki_field_2"),
+                "file_path": fp,
             })
 
         elif status == "modify_type":
             uuid = _lookup_uuid(db, r)
             fp = r.get("file_path")
+            entry_id = uuid or str(_uuid_mod.uuid4())
+            deck = _deck_from_path(fp, vault_path)
+            tags = _parse_tags(r.get("vault_tags"))
+            db.upsert_diff_entry(
+                id=entry_id, operation="retype",
+                note_type=r.get("note_type") or "", deck_name=deck,
+                field_1=r.get("vault_field_1"), field_2=r.get("vault_field_2"),
+                tags=tags, anki_id=r.get("anki_id"), file_path=fp,
+            )
             diff["retype"].append({
-                "uuid":      uuid,
-                "anki_id":   r.get("anki_id"),
-                "note_type": r.get("note_type") or "",
-                "deck_name": _deck_from_path(fp, vault_path),
-                "field_1":   r.get("vault_field_1"),
-                "field_2":   r.get("vault_field_2"),
-                "tags":      _parse_tags(r.get("vault_tags")),
-                "file_path": fp,
+                "uuid": uuid, "anki_id": r.get("anki_id"),
+                "note_type": r.get("note_type") or "", "deck_name": deck,
+                "field_1": r.get("vault_field_1"), "field_2": r.get("vault_field_2"),
+                "tags": tags, "file_path": fp,
             })
 
         elif status == "modify_deck":
             uuid = _lookup_uuid(db, r)
             fp = r.get("file_path")
+            entry_id = uuid or str(_uuid_mod.uuid4())
+            vault_deck = r.get("vault_deck")
+            db.upsert_diff_entry(
+                id=entry_id, operation="move_deck",
+                note_type=r.get("note_type") or "", deck_name=vault_deck,
+                field_1=r.get("vault_field_1"), field_2=None,
+                tags=None, anki_id=r.get("anki_id"), file_path=fp,
+            )
             diff["modify_deck"].append({
-                "uuid":       uuid,
-                "anki_id":    r.get("anki_id"),
-                "note_type":  r.get("note_type") or "",
-                "vault_deck": r.get("vault_deck"),
-                "anki_deck":  r.get("anki_deck"),
-                "field_1":    r.get("vault_field_1"),
-                "file_path":  fp,
+                "uuid": uuid, "anki_id": r.get("anki_id"),
+                "note_type": r.get("note_type") or "",
+                "vault_deck": vault_deck, "anki_deck": r.get("anki_deck"),
+                "field_1": r.get("vault_field_1"), "file_path": fp,
             })
 
         elif status == "orphan_in_anki":
             note_type = r.get("note_type") or ""
             if managed_types and note_type not in managed_types:
                 continue
+            anki_id = r.get("anki_id")
+            entry_id = f"delete:{anki_id}"
+            db.upsert_diff_entry(
+                id=entry_id, operation="delete",
+                note_type=note_type, deck_name=r.get("anki_deck") or "",
+                field_1=r.get("anki_field_1"), field_2=r.get("anki_field_2"),
+                tags=None, anki_id=anki_id, file_path=None,
+            )
             diff["orphan"].append({
-                "anki_id":   r.get("anki_id"),
-                "note_type": note_type,
-                "field_1":   r.get("anki_field_1"),
-                "field_2":   r.get("anki_field_2"),
+                "anki_id": anki_id, "note_type": note_type,
+                "field_1": r.get("anki_field_1"), "field_2": r.get("anki_field_2"),
                 "deck_name": r.get("anki_deck") or "",
             })
 
     stale_notes = db.get_notes_by_state("stale")
     for n in stale_notes:
+        db.upsert_diff_entry(
+            id=n["id"], operation="stale",
+            note_type=n["note_type"], deck_name=None,
+            field_1=n["field_1"], field_2=None,
+            tags=None, anki_id=None, file_path=n["file_path"],
+        )
         diff["stale"].append({
-            "uuid":      n["id"],
-            "note_type": n["note_type"],
-            "field_1":   n["field_1"],
-            "file_path": n["file_path"],
+            "uuid": n["id"], "note_type": n["note_type"],
+            "field_1": n["field_1"], "file_path": n["file_path"],
         })
 
     return diff
 
 
-def resolve_modifications(diff: dict, db: NoteDB) -> dict:
-    """Interactively resolve each modified note.
-
-    For each entry in diff["update"], shows a vault-vs-Anki field diff and
-    prompts the user:
-      [u]pdate  — push vault version to Anki
-      [s]kip    — leave for later (removed from this diff run)
-      [r]evert  — accept Anki version (DB updated to match Anki; note synced)
-
-    Returns a new diff dict with only the [u]pdate-approved entries remaining.
-    """
-    updates = diff.get("update", [])
-    if not updates:
-        print("No modified notes to resolve.")
-        return diff
-
-    approved: list[dict] = []
-    total = len(updates)
-
-    for i, entry in enumerate(updates, 1):
-        uuid      = entry.get("uuid")
-        anki_id   = entry.get("anki_id")
-        note_type = entry.get("note_type") or "Unknown"
-        fp        = entry.get("file_path") or ""
-
-        vault_f1 = _strip_html(entry.get("field_1"), max_len=200)
-        vault_f2 = _strip_html(entry.get("field_2"), max_len=200)
-
-        anki_f1 = anki_f2 = ""
-        if anki_id:
-            row = db._conn.execute(
-                "SELECT field_1, field_2 FROM anki_notes WHERE anki_id = ?",
-                (anki_id,),
-            ).fetchone()
-            if row:
-                anki_f1 = _strip_html(row["field_1"], max_len=200)
-                anki_f2 = _strip_html(row["field_2"], max_len=200)
-
-        print(f"\n{'─'*60}")
-        print(f"Note {i}/{total} — {note_type}")
-        if fp:
-            print(f"  {fp}")
-        if vault_f1 == anki_f1 and vault_f2 == anki_f2:
-            print("  [HTML-only diff — visible content is identical]")
-            print(f"  F1: {vault_f1}")
-        else:
-            print(f"  Vault F1: {vault_f1}")
-            print(f"  Anki  F1: {anki_f1}")
-        if vault_f2 or anki_f2:
-            if vault_f1 != anki_f1 or vault_f2 != anki_f2:
-                print(f"  Vault F2: {vault_f2}")
-                print(f"  Anki  F2: {anki_f2}")
-
-        while True:
-            choice = input("\n  [u]pdate Anki  [s]kip  [r]evert DB to Anki: ").strip().lower()
-            if choice in ("u", "update"):
-                approved.append(entry)
-                break
-            elif choice in ("s", "skip"):
-                break
-            elif choice in ("r", "revert"):
-                if uuid:
-                    db.revert_note_to_anki(uuid)
-                break
-            else:
-                print("  Invalid — enter u, s, or r.")
-
-    new_diff = dict(diff)
-    new_diff["update"] = approved
-    return new_diff
-
-
-def resolve_review(db: NoteDB, diff: dict, vault_path: str) -> dict:
-    """Interactively resolve notes queued for ambiguous similarity matches.
-
-    For each note with recommended_action = 'review' or 'link':
-      [1..N]  Link to that candidate
-      [a]dd   Add as new card
-      [s]kip  Leave for next run
-    """
-    items = db.get_review_queue()
-    if not items:
-        print("No review-queue items.")
-        return diff
-
-    total = len(items)
-    for i, note in enumerate(items, 1):
-        uuid      = note["id"]
-        note_type = note["note_type"]
-        fp        = note["file_path"] or ""
-        f1_raw    = note.get("field_1")
-        f2_raw    = note.get("field_2")
-        action    = note.get("recommended_action", "review")
-
-        candidate_ids = db.similarity_search(f1_raw, f2_raw, note_type)
-        candidates = []
-        for cid in candidate_ids:
-            row = db._conn.execute(
-                "SELECT anki_id, field_1, field_2, deck_name FROM anki_notes WHERE anki_id = ?",
-                (cid,),
-            ).fetchone()
-            if row:
-                candidates.append(dict(row))
-
-        if not candidates:
-            db.set_state_and_action(uuid, "not_in_anki", "add")
-            deck = _deck_from_path(fp, vault_path)
-            diff["add"].append({
-                "uuid":      uuid,
-                "note_type": note_type,
-                "deck_name": deck,
-                "field_1":   f1_raw,
-                "field_2":   f2_raw,
-                "tags":      _parse_tags(note.get("tags")),
-                "file_path": fp,
-            })
-            continue
-
-        print(f"\n{'─'*60}")
-        print(f"Review {i}/{total} — {note_type}  [{action}]")
-        if fp:
-            print(f"  {fp}")
-        print(f"  Vault F1: {_strip_html(f1_raw)}")
-        f2_disp = _strip_html(f2_raw)
-        if f2_disp:
-            print(f"  Vault F2: {f2_disp}")
-
-        for j, c in enumerate(candidates, 1):
-            cf1  = _strip_html(c["field_1"])
-            cf2  = _strip_html(c.get("field_2") or "")
-            deck = c.get("deck_name") or ""
-            line = f"  [{j}] Anki {c['anki_id']}: {cf1}"
-            if cf2:
-                line += f" / {cf2}"
-            if deck:
-                line += f"  [{deck}]"
-            print(line)
-
-        print("  [a] Add as new card   [s] Skip this run")
-
-        while True:
-            choice = input("  Choice: ").strip().lower()
-            if choice.isdigit():
-                j = int(choice) - 1
-                if 0 <= j < len(candidates):
-                    c = candidates[j]
-                    db.mark_synced(uuid, c["anki_id"])
-                    db.clear_recommended_action(uuid)
-                    print(f"  → Linked to Anki ID {c['anki_id']}")
-                    break
-                print(f"  Invalid — enter 1–{max(1, len(candidates))}, a, or s.")
-            elif choice in ("a", "add"):
-                db.set_state_and_action(uuid, "not_in_anki", "add")
-                deck = _deck_from_path(fp, vault_path)
-                diff["add"].append({
-                    "uuid":      uuid,
-                    "note_type": note_type,
-                    "deck_name": deck,
-                    "field_1":   f1_raw,
-                    "field_2":   f2_raw,
-                    "tags":      _parse_tags(note.get("tags")),
-                    "file_path": fp,
-                })
-                print("  → Queued for add")
-                break
-            elif choice in ("s", "skip"):
-                print("  → Skipped")
-                break
-            else:
-                print("  Invalid — enter a number, a, or s.")
-
-    return diff
-
-
-def write_json(diff: dict, vault_path: str, output_path: str) -> None:
-    payload = {
-        "generated": datetime.now(timezone.utc).isoformat(),
-        "vault_path": vault_path,
-        **diff,
-    }
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2, ensure_ascii=False)
-    print(f"[json] Written to: {output_path}")
-
-
-def write_markdown(diff: dict, vault_path: str, output_path: str) -> None:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    total = sum(len(v) for v in diff.values())
-
-    counts = [
-        ("add",               len(diff["add"])),
-        ("update",            len(diff["update"])),
-        ("re-type",           len(diff.get("retype", []))),
-        ("re-add (stale ID)", len(diff["restale"])),
-        ("modify deck",       len(diff.get("modify_deck", []))),
-        ("orphan",            len(diff["orphan"])),
-        ("stale (deleted)",   len(diff.get("stale", []))),
-    ]
-
-    lines: list[str] = [
-        "# Anki Diff\n",
-        f"\nGenerated: {now}  \n",
-        f"Vault: `{vault_path}`\n",
-        "\n---\n",
-        "\n## Summary\n",
-    ]
-    for label, n in counts:
-        lines.append(f"\n- {label}: {n}")
-    lines.append(f"\n- **total: {total}**\n")
-
-    if total == 0:
-        lines.append("\n> Nothing to do — all notes are synced.\n")
-    else:
-        _md_section_add(lines, "Add", diff["add"], vault_path)
-        _md_section_update(lines, "Update", diff["update"], vault_path)
-        _md_section_retype(lines, "Re-type (Delete + Re-add)", diff.get("retype", []), vault_path)
-        _md_section_add(lines, "Re-add (Stale ID)", diff["restale"], vault_path)
-        _md_section_modify_deck(lines, "Modify Deck", diff.get("modify_deck", []))
-        _md_section_orphan(lines, "Orphan (Delete from Anki)", diff["orphan"])
-        _md_section_stale(lines, "Stale (File Deleted)", diff.get("stale", []))
-
-    content = "".join(lines) + "\n"
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as fh:
-        fh.write(content)
-    print(f"[md]   Written to: {output_path}")
-
-
-def _rel(file_path: str | None, vault_path: str) -> str:
-    if not file_path:
-        return ""
-    try:
-        return os.path.relpath(file_path, vault_path)
-    except ValueError:
-        return file_path
-
-
-def _md_note_entry(lines: list[str], r: dict, vault_path: str) -> None:
-    note_type = r.get("note_type") or "Unknown"
-    fp = r.get("file_path") or ""
-    rel = _rel(fp, vault_path) if fp else ""
-    lines.append(f"\n### {note_type}")
-    if rel:
-        lines.append(f"\n`{rel}`\n")
-    else:
-        lines.append("\n")
-
-
-def _md_section_add(lines: list[str], title: str, rows: list[dict], vault_path: str) -> None:
-    if not rows:
-        return
-    lines.append(f"\n\n## {title} ({len(rows)})\n")
-    for r in rows:
-        _md_note_entry(lines, r, vault_path)
-        f1 = _strip_html(r.get("field_1"))
-        f2 = _strip_html(r.get("field_2"))
-        deck = r.get("deck_name") or ""
-        if f1:
-            lines.append(f"\n**Field 1:** {f1}")
-        if f2:
-            lines.append(f"\n**Field 2:** {f2}")
-        if deck:
-            lines.append(f"\n**Deck:** {deck}")
-        lines.append("\n")
-
-
-def _md_section_update(lines: list[str], title: str, rows: list[dict], vault_path: str) -> None:
-    if not rows:
-        return
-    lines.append(f"\n\n## {title} ({len(rows)})\n")
-    for r in rows:
-        _md_note_entry(lines, r, vault_path)
-        vf1 = _strip_html(r.get("field_1"))
-        vf2 = _strip_html(r.get("field_2"))
-        af1 = _strip_html(r.get("anki_field_1"))
-        af2 = _strip_html(r.get("anki_field_2"))
-        deck = r.get("deck_name") or ""
-        if vf1 or af1:
-            lines.append(f"\n**Vault F1:** {vf1}")
-            lines.append(f"\n**Anki F1:**  {af1}")
-        if vf2 or af2:
-            lines.append(f"\n**Vault F2:** {vf2}")
-            lines.append(f"\n**Anki F2:**  {af2}")
-        if deck:
-            lines.append(f"\n**Deck:** {deck}")
-        lines.append("\n")
-
-
-def _md_section_retype(lines: list[str], title: str, rows: list[dict], vault_path: str) -> None:
-    if not rows:
-        return
-    lines.append(f"\n\n## {title} ({len(rows)})\n")
-    for r in rows:
-        _md_note_entry(lines, r, vault_path)
-        f1 = _strip_html(r.get("field_1"))
-        note_type = r.get("note_type") or ""
-        deck = r.get("deck_name") or ""
-        if f1:
-            lines.append(f"\n**Field 1:** {f1}")
-        lines.append(f"\n**New Type:** {note_type}")
-        if deck:
-            lines.append(f"\n**Deck:** {deck}")
-        lines.append("\n")
-
-
-def _md_section_modify_deck(lines: list[str], title: str, rows: list[dict]) -> None:
-    if not rows:
-        return
-    lines.append(f"\n\n## {title} ({len(rows)})\n")
-    for r in rows:
-        note_type  = r.get("note_type") or "Unknown"
-        fp         = r.get("file_path") or ""
-        f1         = _strip_html(r.get("field_1"))
-        vault_deck = r.get("vault_deck") or ""
-        anki_deck  = r.get("anki_deck") or ""
-        lines.append(f"\n### {note_type}")
-        if fp:
-            lines.append(f"\n`{fp}`\n")
-        else:
-            lines.append("\n")
-        if f1:
-            lines.append(f"\n**Field 1:** {f1}")
-        lines.append(f"\n**Vault Deck:** {vault_deck}")
-        lines.append(f"\n**Anki Deck:**  {anki_deck}")
-        lines.append("\n")
-
-
-def _md_section_orphan(lines: list[str], title: str, rows: list[dict]) -> None:
-    if not rows:
-        return
-    lines.append(f"\n\n## {title} ({len(rows)})\n")
-    for r in rows:
-        note_type = r.get("note_type") or "Unknown"
-        anki_id   = r.get("anki_id") or ""
-        f1 = _strip_html(r.get("field_1"))
-        f2 = _strip_html(r.get("field_2"))
-        deck = r.get("deck_name") or ""
-        lines.append(f"\n### {note_type} (Anki ID: {anki_id})\n")
-        if f1:
-            lines.append(f"\n**Field 1:** {f1}")
-        if f2:
-            lines.append(f"\n**Field 2:** {f2}")
-        if deck:
-            lines.append(f"\n**Deck:** {deck}")
-        lines.append("\n")
-
-
-def _md_section_stale(lines: list[str], title: str, rows: list[dict]) -> None:
-    if not rows:
-        return
-    lines.append(f"\n\n## {title} ({len(rows)})\n")
-    for r in rows:
-        note_type = r.get("note_type") or "Unknown"
-        fp = r.get("file_path") or ""
-        f1 = _strip_html(r.get("field_1"))
-        lines.append(f"\n### {note_type}")
-        if fp:
-            lines.append(f"\n`{fp}`\n")
-        else:
-            lines.append("\n")
-        if f1:
-            lines.append(f"\n**Field 1:** {f1}")
-        lines.append("\n")
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -911,11 +576,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="scan",
         description=(
-            "Vault scanner, Anki snapshot, and diff manifest generator.\n\n"
-            "The vault is the source of truth. The DB caches the previous vault\n"
-            "state (notes) and Anki state (anki_notes). Scanning updates the vault\n"
-            "snapshot; diff compares it to the Anki snapshot to produce write.py input.\n\n"
-            "Diff runs automatically after every vault scan when Anki snapshot data exists.\n"
+            "Vault scanner, Anki snapshot, and diff generator.\n\n"
+            "The vault is the source of truth. The DB caches vault state (notes)\n"
+            "and Anki state (anki_notes). Scanning updates the vault snapshot;\n"
+            "diff compares it to the Anki snapshot and writes pending changes to\n"
+            "the anki_diff table. Run write.py to execute those changes.\n\n"
             "Use --anki to refresh the Anki snapshot (requires AnkiConnect running)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -938,26 +603,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Scan all vault files even if their hash is unchanged since the last scan.",
-    )
-    parser.add_argument(
-        "--output-json",
-        default=_DEFAULT_JSON,
-        metavar="FILE",
-        help=f"JSON manifest output path (default: {_DEFAULT_JSON}).",
-    )
-    parser.add_argument(
-        "--output-md",
-        default=_DEFAULT_MD,
-        metavar="FILE",
-        help=f"Markdown preview output path (default: {_DEFAULT_MD}).",
-    )
-    parser.add_argument(
-        "--resolve",
-        action="store_true",
-        help=(
-            "Interactively resolve modified notes before writing the diff. "
-            "Prompts: [u]pdate Anki / [s]kip / [r]evert DB to Anki."
-        ),
     )
     return parser
 
@@ -994,24 +639,17 @@ def main() -> None:
     elif not anki_count:
         print("\n[diff] No Anki snapshot in DB — run with --anki first to snapshot Anki.")
     else:
-        print("\n[diff] Generating diff manifest…")
+        print("\n[diff] Building diff…")
         diff = build_diff(db, vault_path)
-
-        diff = resolve_review(db, diff, vault_path)
-
-        if args.resolve:
-            diff = resolve_modifications(diff, db)
 
         total = sum(len(v) for v in diff.values())
         print(
             f"\n[diff] add={len(diff['add'])}, update={len(diff['update'])}, "
             f"retype={len(diff.get('retype', []))}, restale={len(diff['restale'])}, "
-            f"modify_deck={len(diff.get('modify_deck', []))}, "
-            f"orphan={len(diff['orphan'])}, stale={len(diff['stale'])}  (total={total})"
+            f"move_deck={len(diff.get('modify_deck', []))}, "
+            f"delete={len(diff['orphan'])}, stale={len(diff['stale'])}  (total={total})"
         )
-
-        write_json(diff, vault_path, args.output_json)
-        write_markdown(diff, vault_path, args.output_md)
+        print("[diff] Pending changes written to anki_diff table. Run write.py to apply.")
 
     db.close()
     print("\nDone.")
