@@ -227,7 +227,7 @@ def _ensure_decks(ac: AnkiConnect, manifest: dict) -> None:
 
 
 def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = False) -> dict:
-    results = {"added": 0, "updated": 0, "re_added": 0, "reconciled": 0, "deleted": 0, "deck_changed": 0, "errors": []}
+    results = {"added": 0, "updated": 0, "re_typed": 0, "re_added": 0, "reconciled": 0, "deleted": 0, "deck_changed": 0, "errors": []}
     _ensure_decks(ac, manifest)
 
     # file_path → {uuid: anki_id} for frontmatter writes
@@ -259,6 +259,7 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
             })
             if new_id and entry.get("uuid"):
                 db.mark_synced(entry["uuid"], new_id)
+                db.clear_recommended_action(entry["uuid"])
                 fp = entry.get("file_path")
                 if fp:
                     fm_updates.setdefault(fp, {})[entry["uuid"]] = new_id
@@ -271,6 +272,7 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
                 existing_id = _find_existing_anki_note(db, entry.get("field_1"), note_type)
                 if existing_id:
                     db.mark_synced(entry["uuid"], existing_id)
+                    db.clear_recommended_action(entry["uuid"])
                     fp = entry.get("file_path")
                     if fp:
                         fm_updates.setdefault(fp, {})[entry["uuid"]] = existing_id
@@ -302,10 +304,44 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
             results["updated"] += 1
             fp = entry.get("file_path")
             uuid = entry.get("uuid")
+            if uuid:
+                db.clear_recommended_action(uuid)
             if fp and uuid:
                 fm_updates.setdefault(fp, {})[uuid] = anki_id
         except Exception as exc:
             results["errors"].append(f"updateNoteFields (id={anki_id}): {exc}")
+
+    retype_entries = manifest.get("retype", [])
+    retype_total = len(retype_entries)
+    for i, entry in enumerate(retype_entries, 1):
+        if i % 25 == 0 or i == retype_total:
+            print(f"  retype {i}/{retype_total}…")
+        old_anki_id = entry.get("anki_id")
+        uuid        = entry.get("uuid")
+        note_type   = entry.get("note_type", "")
+        deck_name   = entry.get("deck_name") or globals.UNMATCHED_DECK
+        fields      = _field_map(note_type, entry.get("field_1"), entry.get("field_2"))
+        tags        = entry.get("tags") or []
+        try:
+            if old_anki_id:
+                ac.invoke("deleteNotes", notes=[old_anki_id])
+            new_id = ac.invoke("addNote", note={
+                "deckName":  deck_name,
+                "modelName": note_type,
+                "fields":    fields,
+                "tags":      tags,
+                "options":   {"allowDuplicate": False},
+            })
+            if new_id and uuid:
+                db.mark_synced(uuid, new_id)
+                db.clear_recommended_action(uuid)
+                fp = entry.get("file_path")
+                if fp:
+                    fm_updates.setdefault(fp, {})[uuid] = new_id
+            results["re_typed"] += 1
+        except Exception as exc:
+            label = (entry.get("field_1") or "")[:40]
+            results["errors"].append(f"retype ({label!r}): {exc}")
 
     for entry in manifest.get("modify_deck", []):
         anki_id = entry.get("anki_id")
@@ -318,6 +354,9 @@ def execute(manifest: dict, ac: AnkiConnect, db: NoteDB, delete_orphans: bool = 
             if card_ids:
                 ac.invoke("changeDeck", cards=card_ids, deck=deck_name)
             results["deck_changed"] += 1
+            uuid = entry.get("uuid")
+            if uuid:
+                db.clear_recommended_action(uuid)
         except Exception as exc:
             results["errors"].append(f"changeDeck (id={anki_id}): {exc}")
 
@@ -423,7 +462,8 @@ def main() -> None:
     db.close()
 
     print(f"\nDone — added={results['added']}, updated={results['updated']}, "
-          f"re_added={results['re_added']}, reconciled={results['reconciled']}, "
+          f"re_typed={results['re_typed']}, re_added={results['re_added']}, "
+          f"reconciled={results['reconciled']}, "
           f"deck_changed={results['deck_changed']}, deleted={results['deleted']}")
     if results["errors"]:
         print(f"\nErrors ({len(results['errors'])}):")

@@ -21,6 +21,7 @@ _spec.loader.exec_module(_scan_mod)  # type: ignore
 add_atomic_id = _scan_mod.add_atomic_id
 find_vault_modifications = _scan_mod.find_vault_modifications
 _read_frontmatter_sync = _scan_mod._read_frontmatter_sync
+run_vault_scan = _scan_mod.run_vault_scan
 
 
 @pytest.fixture
@@ -178,3 +179,124 @@ class TestReadFrontmatterSync:
         f = tmp_path / "note.md"
         f.write_text("---\nanki_sync: {}\n---\n# Body\n", encoding="utf-8")
         assert _read_frontmatter_sync(str(f)) == {}
+
+
+import hashlib
+import re
+
+# globals module as seen by scan.py (may differ from src.obsidian_to_anki.globals)
+_scan_globals = _scan_mod.globals
+
+
+# Files used in hashing tests always include atomic_id upfront so add_atomic_id
+# is a no-op — keeps the on-disk hash stable across scans.
+_FM = "---\natomic_id: {aid}\n---\n"
+
+
+def _md(path, name="note.md", aid="test-aid", body="# Hello\n"):
+    f = path / name
+    f.write_text(_FM.format(aid=aid) + body, encoding="utf-8")
+    return f
+
+
+class TestRunVaultScanHashing:
+
+    @pytest.fixture(autouse=True)
+    def setup_globals(self):
+        _scan_globals.CONFIG_DATA = {
+            "Vault": "",
+            "DECK_LINE": "TARGET DECK",
+            "TAG_LINE": "FILE TAGS",
+            "NOTE_PREFIX": "START",
+            "NOTE_SUFFIX": "END",
+            "FROZEN_LINE": "FROZEN",
+            "INLINE_PREFIX": "STARTI",
+            "INLINE_SUFFIX": "ENDI",
+            "Comment": False,
+            "ATOMICS": {},
+            "FOLDER_DECKS": [],
+        }
+        _scan_globals.VAULT_PATH_REGEXP = re.compile(r"^$")
+        _scan_globals.DECK_REGEXP = re.compile(r"^TARGET DECK(?:\n|: )(.*)", re.MULTILINE)
+        _scan_globals.TAG_REGEXP = re.compile(r"^FILE TAGS(?:\n|: )(.*)", re.MULTILINE)
+        _scan_globals.NOTE_REGEXP = re.compile(r"^START.*?\n([\s\S]*?\n)END\n?", re.MULTILINE)
+        _scan_globals.EMPTY_REGEXP = re.compile(r"^START\n(?:<!--)?ID: [\s\S]*?\nEND", re.MULTILINE)
+        _scan_globals.INLINE_REGEXP = re.compile(r"STARTI(.*?)ENDI")
+        _scan_globals.INLINE_EMPTY_REGEXP = re.compile(r"STARTI\s+(?:<!--)?ID: .*?ENDI")
+        _scan_globals.FROZEN_REGEXP = re.compile(r"FROZEN - (.*?):\n((?:[^\n][\n]?)+)")
+        _scan_globals.EXISTING_IDS = []
+        _scan_globals.FIELDS_DICT = {}
+        _scan_globals.NOTE_DICT_TEMPLATE = {"tags": [], "deckName": "Default"}
+        _scan_globals.NOTE_DB = None
+        yield
+
+    @pytest.fixture
+    def db(self):
+        instance = NoteDB(":memory:")
+        yield instance
+        instance.close()
+
+    def test_new_file_hash_stored_after_scan(self, tmp_path, db):
+        f = _md(tmp_path)
+        run_vault_scan(str(tmp_path), db)
+        assert db.get_file_hash(str(f)) is not None
+
+    def test_correct_hash_value_stored(self, tmp_path, db):
+        f = _md(tmp_path)
+        run_vault_scan(str(tmp_path), db)
+        expected = hashlib.sha256(f.read_bytes()).hexdigest()
+        assert db.get_file_hash(str(f)) == expected
+
+    def test_unchanged_file_skipped_on_second_scan(self, tmp_path, db, capsys):
+        _md(tmp_path)
+        run_vault_scan(str(tmp_path), db)
+        capsys.readouterr()
+        run_vault_scan(str(tmp_path), db)
+        assert "1 skipped" in capsys.readouterr().out
+
+    def test_changed_file_rescanned(self, tmp_path, db, capsys):
+        f = _md(tmp_path)
+        run_vault_scan(str(tmp_path), db)
+        f.write_text(_FM.format(aid="test-aid") + "# Modified\n", encoding="utf-8")
+        capsys.readouterr()
+        run_vault_scan(str(tmp_path), db)
+        assert "skipped" not in capsys.readouterr().out
+
+    def test_wrong_stored_hash_triggers_rescan(self, tmp_path, db):
+        content = _FM.format(aid="test-aid") + "# Hello\n"
+        f = tmp_path / "note.md"
+        f.write_text(content, encoding="utf-8")
+        db.set_file_hash(str(f), "wrong-hash")
+        run_vault_scan(str(tmp_path), db)
+        expected = hashlib.sha256(content.encode()).hexdigest()
+        assert db.get_file_hash(str(f)) == expected
+
+    def test_force_rescans_despite_matching_hash(self, tmp_path, db, capsys):
+        _md(tmp_path)
+        run_vault_scan(str(tmp_path), db)
+        capsys.readouterr()
+        run_vault_scan(str(tmp_path), db, force=True)
+        assert "skipped" not in capsys.readouterr().out
+
+    def test_multiple_files_one_skipped_one_rescanned(self, tmp_path, db, capsys):
+        _md(tmp_path, name="a.md", aid="aid-a")
+        f2 = _md(tmp_path, name="b.md", aid="aid-b")
+        run_vault_scan(str(tmp_path), db)
+        f2.write_text(_FM.format(aid="aid-b") + "# Modified\n", encoding="utf-8")
+        capsys.readouterr()
+        run_vault_scan(str(tmp_path), db)
+        assert "1 skipped" in capsys.readouterr().out
+
+    def test_non_md_files_not_hashed(self, tmp_path, db):
+        f = tmp_path / "note.txt"
+        f.write_text("content", encoding="utf-8")
+        run_vault_scan(str(tmp_path), db)
+        assert db.get_file_hash(str(f)) is None
+
+    def test_hidden_dirs_not_scanned(self, tmp_path, db):
+        hidden = tmp_path / ".hidden"
+        hidden.mkdir()
+        f = hidden / "note.md"
+        f.write_text("# Hidden\n", encoding="utf-8")
+        run_vault_scan(str(tmp_path), db)
+        assert db.get_file_hash(str(f)) is None

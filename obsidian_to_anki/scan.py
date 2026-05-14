@@ -23,6 +23,7 @@ Next step after scanning:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -210,11 +211,12 @@ def find_vault_modifications(db: NoteDB, vault_path: str) -> tuple[int, int]:
 
 # ── Stage 1: vault scan ────────────────────────────────────────────────────────
 
-def run_vault_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
+def run_vault_scan(vault_path: str, db: NoteDB, force: bool = False) -> tuple[int, int]:
     """Walk vault_path, parse notes, upsert into DB. Returns (files, notes)."""
     print(f"[vault] Scanning vault: {vault_path}")
     files_with_notes = 0
     total_notes = 0
+    files_skipped = 0
     start_dir = os.getcwd()
 
     for root, dirs, files in os.walk(vault_path):
@@ -226,9 +228,15 @@ def run_vault_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
         for filename in md_files:
             filepath = os.path.join(root, filename)
             try:
+                with open(filepath, "rb") as fh:
+                    current_hash = hashlib.sha256(fh.read()).hexdigest()
+                if not force and db.get_file_hash(filepath) == current_hash:
+                    files_skipped += 1
+                    continue
                 add_atomic_id(filepath, db)
                 rf = File(filepath)
                 rf.scan_file()
+                db.set_file_hash(filepath, current_hash)
             except Exception as exc:
                 print(f"  [WARN] {os.path.relpath(filepath, vault_path)}: {exc}")
                 continue
@@ -240,17 +248,26 @@ def run_vault_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
                     if not note_row["anki_id"] and note_row["id"] in fm_sync:
                         db.mark_synced(note_row["id"], fm_sync[note_row["id"]])
 
-            count = len(rf.notes_to_add) + len(rf.notes_to_edit)
+            n_add    = len(rf.notes_to_add)
+            n_edit   = len(rf.notes_to_edit)
+            n_skip   = len(rf.notes_skipped)
+            n_review = len(rf.pending_review)
+            count    = n_add + n_edit + n_skip + n_review
             if count:
                 rel = os.path.relpath(filepath, vault_path)
-                print(f"  {rel}: {count} note(s)"
-                      f"  (add={len(rf.notes_to_add)}, edit={len(rf.notes_to_edit)})")
+                parts = []
+                if n_add:    parts.append(f"add={n_add}")
+                if n_edit:   parts.append(f"edit={n_edit}")
+                if n_skip:   parts.append(f"skip={n_skip}")
+                if n_review: parts.append(f"review={n_review}")
+                print(f"  {rel}: {count} note(s)  ({', '.join(parts)})")
                 files_with_notes += 1
                 total_notes += count
 
     os.chdir(start_dir)
 
-    print(f"\n[vault] Scan complete — {files_with_notes} files, {total_notes} notes")
+    skip_msg = f", {files_skipped} skipped (unchanged)" if files_skipped else ""
+    print(f"\n[vault] Scan complete — {files_with_notes} files, {total_notes} notes{skip_msg}")
     rows = db._conn.execute(
         "SELECT note_type, COUNT(*) AS n FROM notes GROUP BY note_type ORDER BY n DESC"
     ).fetchall()
@@ -261,9 +278,9 @@ def run_vault_scan(vault_path: str, db: NoteDB) -> tuple[int, int]:
     return files_with_notes, total_notes
 
 
-def parse_files(vault_path: str, db: NoteDB) -> tuple[int, int]:
+def parse_files(vault_path: str, db: NoteDB, force: bool = False) -> tuple[int, int]:
     """Alias for run_vault_scan — name matches plan.md process step 3."""
-    return run_vault_scan(vault_path, db)
+    return run_vault_scan(vault_path, db, force=force)
 
 
 def compare_vault_modifications(db: NoteDB, exclude_synced: bool = True) -> list[dict]:
@@ -379,19 +396,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run --vault + --anki together.",
     )
     parser.add_argument(
-        "--find-stale",
+        "--force",
         action="store_true",
-        dest="find_stale",
-        help=(
-            "After vault scan: mark notes as stale whose vault file no longer exists. "
-            "Absolute-path contamination is always deleted. Safe — no data removed."
-        ),
-    )
-    parser.add_argument(
-        "--remove-stale",
-        action="store_true",
-        dest="remove_stale",
-        help="Prompt to permanently delete stale notes from DB (implies --find-stale).",
+        help="Scan all files even if their hash is unchanged since the last scan.",
     )
     return parser
 
@@ -421,28 +428,7 @@ def main() -> None:
     print(f"Vault: {vault_path}\n")
 
     if run_vault:
-        run_vault_scan(vault_path, db)
-
-    if (args.find_stale or args.remove_stale) and run_vault:
-        abs_r, stale_r = find_vault_modifications(db, vault_path)
-        print(f"[stale] Removed {abs_r} absolute-path (test) note(s), "
-              f"marked {stale_r} note(s) as stale.")
-        if args.remove_stale:
-            stale_notes = db.get_notes_by_state("stale")
-            if not stale_notes:
-                print("[stale] No stale notes to remove.")
-            else:
-                print(f"\nStale notes ({len(stale_notes)}):")
-                for n in stale_notes:
-                    preview = (n.get("field_1") or "")[:60].replace("\n", " ")
-                    print(f"  {n['file_path']}  [{n['note_type']}]  {preview!r}")
-                answer = input(f"\nRemove {len(stale_notes)} stale note(s) from DB? [y/N]: ").strip().lower()
-                if answer in ("y", "yes"):
-                    for n in stale_notes:
-                        db.delete_note(n["id"])
-                    print(f"[stale] Deleted {len(stale_notes)} note(s).")
-                else:
-                    print("[stale] Cancelled — stale notes kept in DB.")
+        run_vault_scan(vault_path, db, force=args.force)
 
     if run_anki:
         scan_anki(db)

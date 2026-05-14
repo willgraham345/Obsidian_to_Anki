@@ -65,6 +65,13 @@ def _strip_html(text: str | None, max_len: int = 80) -> str:
     return (plain[:max_len] + "…") if len(plain) > max_len else plain
 
 
+def _plain(text: str | None) -> str:
+    """Strip HTML tags without truncating — used for content equality checks."""
+    if not text:
+        return ""
+    return re.sub(r"<[^>]+>", "", text).replace("\n", " ").strip()
+
+
 
 def _lookup_uuid(db: NoteDB, row: dict) -> str | None:
     file_path = row.get("file_path")
@@ -109,6 +116,7 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
     diff: dict[str, list[dict]] = {
         "add": [],
         "update": [],
+        "retype": [],
         "restale": [],
         "orphan": [],
         "modify_deck": [],
@@ -121,6 +129,11 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
         if status in ("not_in_anki", "stale_id"):
             uuid = _lookup_uuid(db, r)
             fp = r.get("file_path")
+            # Skip notes queued for interactive resolution — user must run --resolve-review first
+            if uuid:
+                note = db.get_note(uuid)
+                if note and note.get("recommended_action") in ("review", "link"):
+                    continue
             entry = {
                 "uuid":      uuid,
                 "note_type": r.get("note_type") or "",
@@ -135,16 +148,37 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
             else:
                 diff["add"].append(entry)
 
-        elif status == "modified":
+        elif status in ("modify_fields", "modify_field_1", "modify_field_2"):
+            # Skip HTML-only diffs — Anki normalises stored HTML so vault and
+            # Anki raw values differ even when visible content is identical.
+            if (_plain(r.get("vault_field_1")) == _plain(r.get("anki_field_1"))
+                    and _plain(r.get("vault_field_2")) == _plain(r.get("anki_field_2"))):
+                continue
             uuid = _lookup_uuid(db, r)
             fp = r.get("file_path")
             diff["update"].append({
+                "uuid":        uuid,
+                "anki_id":     r.get("anki_id"),
+                "note_type":   r.get("note_type") or "",
+                "deck_name":   _deck_from_path(fp, vault_path),
+                "field_1":     r.get("vault_field_1"),
+                "field_2":     r.get("vault_field_2"),
+                "anki_field_1": r.get("anki_field_1"),
+                "anki_field_2": r.get("anki_field_2"),
+                "file_path":   fp,
+            })
+
+        elif status == "modify_type":
+            uuid = _lookup_uuid(db, r)
+            fp = r.get("file_path")
+            diff["retype"].append({
                 "uuid":      uuid,
                 "anki_id":   r.get("anki_id"),
                 "note_type": r.get("note_type") or "",
                 "deck_name": _deck_from_path(fp, vault_path),
                 "field_1":   r.get("vault_field_1"),
                 "field_2":   r.get("vault_field_2"),
+                "tags":      _parse_tags(r.get("vault_tags")),
                 "file_path": fp,
             })
 
@@ -173,7 +207,7 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
                 "deck_name": r.get("anki_deck") or "",
             })
 
-    stale_notes = db.get_stale_notes()
+    stale_notes = db.get_notes_by_state("stale")
     for n in stale_notes:
         diff["stale"].append({
             "uuid":      n["id"],
@@ -211,8 +245,8 @@ def resolve_modifications(diff: dict, db: NoteDB) -> dict:
         note_type = entry.get("note_type") or "Unknown"
         fp        = entry.get("file_path") or ""
 
-        vault_f1 = _strip_html(entry.get("field_1"))
-        vault_f2 = _strip_html(entry.get("field_2"))
+        vault_f1 = _strip_html(entry.get("field_1"), max_len=200)
+        vault_f2 = _strip_html(entry.get("field_2"), max_len=200)
 
         # Look up Anki fields from DB snapshot
         anki_f1 = anki_f2 = ""
@@ -222,24 +256,27 @@ def resolve_modifications(diff: dict, db: NoteDB) -> dict:
                 (anki_id,),
             ).fetchone()
             if row:
-                anki_f1 = _strip_html(row["field_1"])
-                anki_f2 = _strip_html(row["field_2"])
+                anki_f1 = _strip_html(row["field_1"], max_len=200)
+                anki_f2 = _strip_html(row["field_2"], max_len=200)
 
         print(f"\n{'─'*60}")
         print(f"Note {i}/{total} — {note_type}")
         if fp:
             print(f"  {fp}")
-        print(f"  Vault F1: {vault_f1}")
-        print(f"  Anki  F1: {anki_f1}")
+        if vault_f1 == anki_f1 and vault_f2 == anki_f2:
+            print(f"  [HTML-only diff — visible content is identical]")
+            print(f"  F1: {vault_f1}")
+        else:
+            print(f"  Vault F1: {vault_f1}")
+            print(f"  Anki  F1: {anki_f1}")
         if vault_f2 or anki_f2:
-            print(f"  Vault F2: {vault_f2}")
-            print(f"  Anki  F2: {anki_f2}")
+            if vault_f1 != anki_f1 or vault_f2 != anki_f2:
+                print(f"  Vault F2: {vault_f2}")
+                print(f"  Anki  F2: {anki_f2}")
 
         while True:
             choice = input("\n  [u]pdate Anki  [s]kip  [r]evert DB to Anki: ").strip().lower()
             if choice in ("u", "update"):
-                if uuid:
-                    db.mark_to_modify(uuid)
                 approved.append(entry)
                 break
             elif choice in ("s", "skip"):
@@ -254,6 +291,98 @@ def resolve_modifications(diff: dict, db: NoteDB) -> dict:
     new_diff = dict(diff)
     new_diff["update"] = approved
     return new_diff
+
+
+def resolve_review(db: NoteDB, diff: dict, vault_path: str) -> dict:
+    """Interactively resolve notes queued for ambiguous similarity matches.
+
+    For each note with recommended_action = 'review' or 'link', shows vault
+    content vs. each candidate Anki match and prompts the user:
+      [1..N]  Link to that candidate
+      [a]dd   Add as new card
+      [s]kip  Leave for next run
+    """
+    items = db.get_review_queue()
+    if not items:
+        print("No review-queue items.")
+        return diff
+
+    total = len(items)
+    for i, note in enumerate(items, 1):
+        uuid      = note["id"]
+        note_type = note["note_type"]
+        fp        = note["file_path"] or ""
+        f1_raw    = note.get("field_1")
+        f2_raw    = note.get("field_2")
+        action    = note.get("recommended_action", "review")
+
+        candidate_ids = db.similarity_search(f1_raw, f2_raw, note_type)
+        candidates = []
+        for cid in candidate_ids:
+            row = db._conn.execute(
+                "SELECT anki_id, field_1, field_2, deck_name FROM anki_notes WHERE anki_id = ?",
+                (cid,),
+            ).fetchone()
+            if row:
+                candidates.append(dict(row))
+
+        print(f"\n{'─'*60}")
+        print(f"Review {i}/{total} — {note_type}  [{action}]")
+        if fp:
+            print(f"  {fp}")
+        print(f"  Vault F1: {_strip_html(f1_raw)}")
+        f2_disp = _strip_html(f2_raw)
+        if f2_disp:
+            print(f"  Vault F2: {f2_disp}")
+
+        if candidates:
+            for j, c in enumerate(candidates, 1):
+                cf1  = _strip_html(c["field_1"])
+                cf2  = _strip_html(c.get("field_2") or "")
+                deck = c.get("deck_name") or ""
+                line = f"  [{j}] Anki {c['anki_id']}: {cf1}"
+                if cf2:
+                    line += f" / {cf2}"
+                if deck:
+                    line += f"  [{deck}]"
+                print(line)
+        else:
+            print("  (no candidates found — may have changed since last scan)")
+
+        print("  [a] Add as new card   [s] Skip this run")
+
+        while True:
+            choice = input("  Choice: ").strip().lower()
+            if choice.isdigit():
+                j = int(choice) - 1
+                if 0 <= j < len(candidates):
+                    c = candidates[j]
+                    db.mark_synced(uuid, c["anki_id"])
+                    db.clear_recommended_action(uuid)
+                    print(f"  → Linked to Anki ID {c['anki_id']}")
+                    break
+                print(f"  Invalid — enter 1–{max(1, len(candidates))}, a, or s.")
+            elif choice in ("a", "add"):
+                db.set_state_and_action(uuid, "not_in_anki", "add")
+                deck = _deck_from_path(fp, vault_path)
+                diff["add"].append({
+                    "uuid":      uuid,
+                    "note_type": note_type,
+                    "deck_name": deck,
+                    "field_1":   f1_raw,
+                    "field_2":   f2_raw,
+                    "tags":      _parse_tags(note.get("tags")),
+                    "file_path": fp,
+                })
+                print("  → Queued for add")
+                break
+            elif choice in ("s", "skip"):
+                print("  → Skipped")
+                break
+            else:
+                print("  Invalid — enter a number, a, or s.")
+
+    return diff
 
 
 def _parse_tags(raw: str | None) -> list[str]:
@@ -288,6 +417,7 @@ def write_markdown(diff: dict, vault_path: str, output_path: str) -> None:
     counts = [
         ("add",              len(diff["add"])),
         ("update",           len(diff["update"])),
+        ("re-type",          len(diff.get("retype", []))),
         ("re-add (stale ID)", len(diff["restale"])),
         ("modify deck",      len(diff.get("modify_deck", []))),
         ("orphan",           len(diff["orphan"])),
@@ -310,6 +440,7 @@ def write_markdown(diff: dict, vault_path: str, output_path: str) -> None:
     else:
         _md_section_add(lines, "Add", diff["add"], vault_path)
         _md_section_update(lines, "Update", diff["update"], vault_path)
+        _md_section_retype(lines, "Re-type (Delete + Re-add)", diff.get("retype", []), vault_path)
         _md_section_add(lines, "Re-add (Stale ID)", diff["restale"], vault_path)
         _md_section_modify_deck(lines, "Modify Deck", diff.get("modify_deck", []))
         _md_section_orphan(lines, "Orphan (Delete from Anki)", diff["orphan"])
@@ -369,6 +500,23 @@ def _md_section_update(lines: list[str], title: str, rows: list[dict], vault_pat
         if vf2 or af2:
             lines.append(f"\n**Vault F2:** {vf2}")
             lines.append(f"\n**Anki F2:**  {af2}")
+        if deck:
+            lines.append(f"\n**Deck:** {deck}")
+        lines.append("\n")
+
+
+def _md_section_retype(lines: list[str], title: str, rows: list[dict], vault_path: str) -> None:
+    if not rows:
+        return
+    lines.append(f"\n\n## {title} ({len(rows)})\n")
+    for r in rows:
+        _md_note_entry(lines, r, vault_path)
+        f1 = _strip_html(r.get("field_1"))
+        note_type = r.get("note_type") or ""
+        deck = r.get("deck_name") or ""
+        if f1:
+            lines.append(f"\n**Field 1:** {f1}")
+        lines.append(f"\n**New Type:** {note_type}")
         if deck:
             lines.append(f"\n**Deck:** {deck}")
         lines.append("\n")
@@ -481,6 +629,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "For each modified note, prompts: [u]pdate Anki / [s]kip / [r]evert DB to Anki."
         ),
     )
+    parser.add_argument(
+        "--resolve-review",
+        action="store_true",
+        dest="resolve_review",
+        help=(
+            "Interactively resolve notes queued for review (ambiguous similarity matches). "
+            "For each: choose a candidate to link, add as new card, or skip."
+        ),
+    )
     return parser
 
 
@@ -511,15 +668,23 @@ def main() -> None:
 
     diff = build_diff(db, vault_path)
 
+    if args.resolve_review:
+        diff = resolve_review(db, diff, vault_path)
+
     if args.resolve:
         diff = resolve_modifications(diff, db)
 
+    pending_review = len(db.get_review_queue())
     db.close()
 
     total = sum(len(v) for v in diff.values())
     print(f"Diff: add={len(diff['add'])}, update={len(diff['update'])}, "
-          f"restale={len(diff['restale'])}, modify_deck={len(diff['modify_deck'])}, "
+          f"retype={len(diff.get('retype', []))}, restale={len(diff['restale'])}, "
+          f"modify_deck={len(diff.get('modify_deck', []))}, "
           f"orphan={len(diff['orphan'])}, stale={len(diff['stale'])}  (total={total})")
+    if pending_review:
+        print(f"[review] {pending_review} note(s) need interactive resolution. "
+              "Run with --resolve-review.")
 
     write_json(diff, vault_path, args.output_json)
     write_markdown(diff, vault_path, args.output_md)

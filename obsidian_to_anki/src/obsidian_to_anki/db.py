@@ -271,6 +271,13 @@ class NoteDB:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_review_queue(self) -> list[dict]:
+        """Return notes with recommended_action = 'review' or 'link' (need interactive resolution)."""
+        rows = self._conn.execute(
+            "SELECT * FROM notes WHERE recommended_action IN ('review', 'link')"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_notes_by_state(self, state: str) -> list[dict]:
         """Return all notes with the given state value."""
         rows = self._conn.execute(

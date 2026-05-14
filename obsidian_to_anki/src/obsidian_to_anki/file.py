@@ -95,6 +95,7 @@ class File:
         self.notes_to_delete = []
         self.uuid_for_regex_add = []
         self.pending_review = []
+        self.notes_skipped = []
 
     def setup_frozen_fields_dict(self):
         self.frozen_fields_dict = {
@@ -249,8 +250,9 @@ class File:
             self.uuid_for_regex_add.append(note_uuid)
         elif routing == 'edit':
             self.notes_to_edit.append(parsed)
+        elif routing == 'skip':
+            self.notes_skipped.append(parsed)
         # 'link', 'review' → pending_review only (handled in Phase 4 interactive prompt)
-        # 'skip' → no action
 
     def scan_file(self):
         """Scan file for atomic (regex) notes and route to add/edit lists."""
