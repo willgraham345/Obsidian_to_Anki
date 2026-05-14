@@ -644,6 +644,80 @@ class TestRecoverAnkiIds:
         assert db.get_note("r-5")["anki_id"] == 8006
 
 
+class TestReconcileStaleIds:
+
+    def test_relinks_when_orphan_matches(self, db):
+        """Vault note has stale anki_id; orphan has same content → re-link."""
+        _make_note(db, uuid="v-1", anki_id=1111, note_type="Basic",
+                   field_1="<p>Q</p>", field_2="<p>A</p>")
+        # anki_notes has a different ID for the same content (re-added in Anki)
+        _make_anki_note(db, anki_id=2222, note_type="Basic",
+                        field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.reconcile_stale_ids() == 1
+        assert db.get_note("v-1")["anki_id"] == 2222
+
+    def test_no_change_when_anki_id_valid(self, db):
+        """Vault note's anki_id exists in snapshot → not touched."""
+        _make_note(db, uuid="v-1", anki_id=1111, note_type="Basic",
+                   field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=1111, note_type="Basic",
+                        field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.reconcile_stale_ids() == 0
+        assert db.get_note("v-1")["anki_id"] == 1111
+
+    def test_no_change_when_no_orphan_match(self, db):
+        """Stale anki_id but orphan has different content → skip."""
+        _make_note(db, uuid="v-1", anki_id=1111, note_type="Basic",
+                   field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=2222, note_type="Basic",
+                        field_1="<p>Different</p>", field_2="<p>A</p>")
+        assert db.reconcile_stale_ids() == 0
+        assert db.get_note("v-1")["anki_id"] == 1111
+
+    def test_skips_ambiguous_multiple_orphan_matches(self, db):
+        """Two orphans match → ambiguous, skip."""
+        _make_note(db, uuid="v-1", anki_id=1111, note_type="Basic",
+                   field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=2222, note_type="Basic",
+                        field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=3333, note_type="Basic",
+                        field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.reconcile_stale_ids() == 0
+
+    def test_strips_stem_and_obsidian_link(self, db):
+        """Vault field_1 has stem/obsidian-link suffix; orphan has clean content → match."""
+        vault_f1 = (
+            "<p>Q</p>"
+            '<br><a href="obsidian://open?vault=Work&file=note.md" class="obsidian-link">Obsidian</a>'
+            "<br><b>note stem</b>"
+        )
+        _make_note(db, uuid="v-1", anki_id=1111, note_type="Basic",
+                   field_1=vault_f1, field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=2222, note_type="Basic",
+                        field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.reconcile_stale_ids() == 1
+        assert db.get_note("v-1")["anki_id"] == 2222
+
+    def test_orphan_already_claimed_not_matched(self, db):
+        """Orphan is already claimed by another vault note → not re-linked."""
+        _make_note(db, uuid="v-1", anki_id=1111, note_type="Basic",
+                   field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_note(db, uuid="v-2", anki_id=2222, note_type="Basic",
+                   field_1="<p>Q</p>", field_2="<p>A</p>", line_number=20)
+        _make_anki_note(db, anki_id=2222, note_type="Basic",
+                        field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.reconcile_stale_ids() == 0
+
+    def test_stage2_matches_field_1_only(self, db):
+        """field_2 differs (edited in vault) but field_1 matches → still re-link."""
+        _make_note(db, uuid="v-1", anki_id=1111, note_type="Basic",
+                   field_1="<p>Q</p>", field_2="<p>Updated</p>")
+        _make_anki_note(db, anki_id=2222, note_type="Basic",
+                        field_1="<p>Q</p>", field_2="<p>Original</p>")
+        assert db.reconcile_stale_ids() == 1
+        assert db.get_note("v-1")["anki_id"] == 2222
+
+
 class TestAnkiDiff:
 
     def test_upsert_and_get(self, db):
@@ -672,7 +746,7 @@ class TestAnkiDiff:
 
     def test_get_by_operation(self, db):
         db.upsert_diff_entry("u1", "add", "Basic", "D", "Q1", None, None, None, None)
-        db.upsert_diff_entry("u2", "update", "Basic", "D", "Q2", None, None, 9001, None)
+        db.upsert_diff_entry("u2", "relink", "Basic", "D", "Q2", None, None, 9001, None)
         adds = db.get_diff_entries(operation="add")
         assert len(adds) == 1
         assert adds[0]["id"] == "u1"

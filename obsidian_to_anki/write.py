@@ -77,7 +77,7 @@ def _resolve_model_fields(ac: AnkiConnect, entries: list[dict]) -> None:
     note_types: set[str] = set()
     for e in entries:
         nt = e.get("note_type")
-        if nt and e.get("operation") in ("add", "update", "restale"):
+        if nt and e.get("operation") in ("add", "update", "relink"):
             note_types.add(nt)
 
     for nt in note_types:
@@ -160,7 +160,7 @@ def _parse_tags(raw) -> list:
 def _ensure_decks(ac: AnkiConnect, entries: list[dict]) -> None:
     decks: set[str] = set()
     for e in entries:
-        if e.get("operation") in ("add", "update", "restale"):
+        if e.get("operation") in ("add", "update", "relink"):
             d = e.get("deck_name")
             if d:
                 decks.add(d)
@@ -174,27 +174,37 @@ def _ensure_decks(ac: AnkiConnect, entries: list[dict]) -> None:
 def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
     entries = db.get_diff_entries()
     results = {
-        "added": 0, "updated": 0, "re_typed": 0, "re_added": 0,
+        "added": 0, "updated": 0, "re_typed": 0, "relinked": 0,
         "reconciled": 0, "deleted": 0, "deck_changed": 0, "errors": [],
     }
 
-    add_entries    = [e for e in entries if e["operation"] in ("add", "restale")]
+    add_entries    = [e for e in entries if e["operation"] == "add"]
+    relink_entries = [e for e in entries if e["operation"] == "relink"]
     update_entries = [e for e in entries if e["operation"] == "update"]
     retype_entries = [e for e in entries if e["operation"] == "retype"]
     deck_entries   = [e for e in entries if e["operation"] == "move_deck"]
     orphan_entries = [e for e in entries if e["operation"] == "delete"]
 
+    # Relink: verify stale anki_id against live Anki; reconnect if still exists,
+    # else promote to add so review history is preserved when possible.
+    for entry in relink_entries:
+        anki_id  = entry.get("anki_id")
+        entry_id = entry["id"]
+        if anki_id:
+            try:
+                info = ac.invoke("notesInfo", notes=[anki_id])
+                if info and info[0].get("noteId"):
+                    db.mark_synced(entry_id, anki_id)
+                    db.clear_recommended_action(entry_id)
+                    db.delete_diff_entry(entry_id)
+                    results["relinked"] += 1
+                    continue
+            except Exception:
+                pass
+        # Note gone from Anki — add as new card
+        add_entries.append(entry)
+
     _ensure_decks(ac, add_entries)
-
-    # restale: clear stale anki_id from vault notes table before re-adding
-    for e in add_entries:
-        if e["operation"] == "restale":
-            uuid = e["id"]
-            db._conn.execute("UPDATE notes SET anki_id = NULL WHERE id = ?", (uuid,))
-    if any(e["operation"] == "restale" for e in add_entries):
-        db._conn.commit()
-
-    is_restale = {e["id"] for e in add_entries if e["operation"] == "restale"}
 
     for entry in add_entries:
         entry_id  = entry["id"]
@@ -214,10 +224,7 @@ def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
                 db.mark_synced(entry_id, new_id)
                 db.clear_recommended_action(entry_id)
             db.delete_diff_entry(entry_id)
-            if entry_id in is_restale:
-                results["re_added"] += 1
-            else:
-                results["added"] += 1
+            results["added"] += 1
         except Exception as exc:
             if "duplicate" in str(exc).lower():
                 existing_id = _find_existing_anki_note(db, entry.get("field_1"), note_type)
@@ -375,7 +382,7 @@ def main() -> None:
     db.close()
 
     print(f"\nDone — added={results['added']}, updated={results['updated']}, "
-          f"re_typed={results['re_typed']}, re_added={results['re_added']}, "
+          f"re_typed={results['re_typed']}, relinked={results['relinked']}, "
           f"reconciled={results['reconciled']}, "
           f"deck_changed={results['deck_changed']}, deleted={results['deleted']}")
     if results["errors"]:

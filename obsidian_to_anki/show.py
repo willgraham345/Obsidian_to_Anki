@@ -44,7 +44,7 @@ def _parse_tags(raw) -> list:
 
 _OP_LABELS = {
     "add":       "ADD",
-    "restale":   "RE-ADD (stale ID)",
+    "relink":    "RELINK (verify + reconnect)",
     "update":    "UPDATE",
     "retype":    "RETYPE",
     "move_deck": "MOVE DECK",
@@ -52,7 +52,7 @@ _OP_LABELS = {
     "stale":     "STALE (file deleted)",
 }
 
-_OP_ORDER = ["add", "restale", "update", "retype", "move_deck", "delete", "stale"]
+_OP_ORDER = ["add", "relink", "update", "retype", "move_deck", "delete", "stale"]
 
 
 def show(db: NoteDB, detail: bool = False) -> None:

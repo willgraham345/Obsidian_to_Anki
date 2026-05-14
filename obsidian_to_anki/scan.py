@@ -9,7 +9,7 @@ Usage (from obsidian_to_anki/):
     uv run python scan.py [vault_path] [--anki] [--force]
 
     vault_path   Path to Obsidian vault (falls back to 'Vault path' in config).
-    --anki       Refresh Anki snapshot from live AnkiConnect data.
+    --anki       Force Anki snapshot refresh (runs automatically when Anki Path is set in config).
     --force      Scan all vault files even if their hash is unchanged.
 
 Workflow:
@@ -363,6 +363,10 @@ def scan_anki(db: NoteDB) -> int:
     if linked:
         print(f"[anki] Reconciled {linked} orphan(s) → vault note(s) by field match")
 
+    relinked = db.reconcile_stale_ids()
+    if relinked:
+        print(f"[anki] Re-linked {relinked} stale anki_id(s) to new orphan note(s)")
+
     summary = db.get_comparison_summary()
     print("[anki] Comparison vs vault:")
     for row in summary:
@@ -437,7 +441,7 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
         "add": [],
         "update": [],
         "retype": [],
-        "restale": [],
+        "relink": [],
         "orphan": [],
         "modify_deck": [],
         "stale": [],
@@ -449,7 +453,8 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
         if status in ("not_in_anki", "stale_id"):
             uuid = _lookup_uuid(db, r)
             fp = r.get("file_path")
-            operation = "restale" if status == "stale_id" else "add"
+            operation = "relink" if status == "stale_id" else "add"
+            stale_anki_id = r.get("anki_id") if status == "stale_id" else None
             entry_id = uuid or str(_uuid_mod.uuid4())
             deck = _deck_from_path(fp, vault_path)
             tags = _parse_tags(r.get("vault_tags"))
@@ -457,7 +462,7 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
                 id=entry_id, operation=operation,
                 note_type=r.get("note_type") or "", deck_name=deck,
                 field_1=r.get("vault_field_1"), field_2=r.get("vault_field_2"),
-                tags=tags, anki_id=None, file_path=fp,
+                tags=tags, anki_id=stale_anki_id, file_path=fp,
             )
             entry = {
                 "uuid": uuid, "note_type": r.get("note_type") or "",
@@ -465,7 +470,7 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
                 "field_2": r.get("vault_field_2"), "tags": tags, "file_path": fp,
             }
             if status == "stale_id":
-                diff["restale"].append(entry)
+                diff["relink"].append(entry)
             else:
                 diff["add"].append(entry)
 
@@ -595,8 +600,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--anki",
         action="store_true",
         help=(
-            "Refresh the Anki snapshot from live AnkiConnect data (requires Anki running). "
-            "Run this after making changes directly in Anki to keep the DB in sync."
+            "Force Anki snapshot refresh. Runs automatically when 'Anki Path' is set "
+            "in config — only needed to override when the path is not configured."
         ),
     )
     parser.add_argument(
@@ -628,7 +633,8 @@ def main() -> None:
 
     run_vault_scan(vault_path, db, force=args.force)
 
-    if args.anki:
+    anki_configured = bool(globals.CONFIG_DATA.get("Path"))
+    if args.anki or anki_configured:
         scan_anki(db)
 
     vault_count = db._conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
@@ -637,7 +643,7 @@ def main() -> None:
     if not vault_count:
         print("\n[diff] No vault notes in DB — skipping diff.")
     elif not anki_count:
-        print("\n[diff] No Anki snapshot in DB — run with --anki first to snapshot Anki.")
+        print("\n[diff] No Anki snapshot in DB — set 'Anki Path' in config or run with --anki.")
     else:
         print("\n[diff] Building diff…")
         diff = build_diff(db, vault_path)
@@ -645,7 +651,7 @@ def main() -> None:
         total = sum(len(v) for v in diff.values())
         print(
             f"\n[diff] add={len(diff['add'])}, update={len(diff['update'])}, "
-            f"retype={len(diff.get('retype', []))}, restale={len(diff['restale'])}, "
+            f"retype={len(diff.get('retype', []))}, relink={len(diff['relink'])}, "
             f"move_deck={len(diff.get('modify_deck', []))}, "
             f"delete={len(diff['orphan'])}, stale={len(diff['stale'])}  (total={total})"
         )

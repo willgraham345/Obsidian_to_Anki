@@ -662,6 +662,61 @@ class NoteDB:
 
         return linked
 
+    def reconcile_stale_ids(self) -> int:
+        """Re-link vault notes with stale anki_ids to orphan Anki notes by content.
+
+        Handles the case where a note was deleted and re-added in Anki (new ID),
+        leaving the vault note pointing to a dead ID while the same content sits
+        as an orphan under the new ID. Finds stale-linked vault notes, searches
+        orphan anki_notes for a content match (stem + obsidian-link stripped),
+        and updates the vault anki_id if exactly one orphan matches.
+
+        Complements reconcile_orphans(), which only considers vault notes with
+        anki_id IS NULL. Returns number of vault notes re-linked.
+        """
+        stale = self._conn.execute("""
+            SELECT id, note_type, field_1, field_2
+            FROM notes
+            WHERE anki_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM anki_notes a WHERE a.anki_id = notes.anki_id
+              )
+        """).fetchall()
+
+        updated = 0
+        for note in stale:
+            core_f1 = _strip_obsidian_link(_strip_stem(note["field_1"]))
+
+            orphans = self._conn.execute("""
+                SELECT a.anki_id, a.field_1, a.field_2
+                FROM anki_notes a
+                WHERE a.note_type = ?
+                  AND NOT EXISTS (SELECT 1 FROM notes n WHERE n.anki_id = a.anki_id)
+            """, (note["note_type"],)).fetchall()
+
+            # Stage 1: field_1 + field_2
+            matches = [
+                row["anki_id"] for row in orphans
+                if _strip_obsidian_link(_strip_stem(row["field_1"])) == core_f1
+                and row["field_2"] == note["field_2"]
+            ]
+            if len(matches) == 1:
+                self.mark_synced(note["id"], matches[0])
+                updated += 1
+                continue
+
+            # Stage 2: field_1 only (field_2 may have been edited)
+            if not matches:
+                matches = [
+                    row["anki_id"] for row in orphans
+                    if _strip_obsidian_link(_strip_stem(row["field_1"])) == core_f1
+                ]
+                if len(matches) == 1:
+                    self.mark_synced(note["id"], matches[0])
+                    updated += 1
+
+        return updated
+
     def get_comparison_summary(self) -> list[dict]:
         """Return [{status, n}, ...] from note_comparison grouped by status."""
         rows = self._conn.execute(
