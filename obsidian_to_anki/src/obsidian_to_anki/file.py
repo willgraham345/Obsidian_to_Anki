@@ -94,6 +94,7 @@ class File:
         self.notes_to_edit = []
         self.notes_to_delete = []
         self.uuid_for_regex_add = []
+        self.pending_review = []
 
     def setup_frozen_fields_dict(self):
         self.frozen_fields_dict = {
@@ -161,6 +162,96 @@ class File:
             return globals.Note_and_id(note=parsed.note, id=existing["anki_id"])
         return parsed
 
+    def _atomic_state_flow(
+        self,
+        parsed,
+        file_path: str,
+        line_no: int,
+        note_uuid: str | None,
+    ) -> str:
+        """Compute diff state and recommended action for an atomic note.
+
+        Returns routing: 'add', 'edit', 'retype', 'link', 'review', 'skip'.
+        Writes state + recommended_action to DB. Appends to pending_review
+        for 'link' and 'review' outcomes.
+        """
+        db = globals.NOTE_DB
+        if db is None or note_uuid is None:
+            if parsed.id is not None and parsed.id in globals.EXISTING_IDS:
+                return 'edit'
+            return 'add'
+
+        field_names = list(parsed.note["fields"].keys())
+        f1 = _strip_stem(parsed.note["fields"].get(field_names[0]) if field_names else None)
+        f2 = parsed.note["fields"].get(field_names[1]) if len(field_names) > 1 else None
+
+        if parsed.id is not None:
+            if parsed.id not in globals.EXISTING_IDS:
+                candidates = db.similarity_search(f1, f2, parsed.note["modelName"])
+                state = "stale_id"
+                action = "link" if len(candidates) == 1 else "review"
+                db.set_state_and_action(note_uuid, state, action)
+                self.pending_review.append({
+                    "uuid": note_uuid, "parsed": parsed,
+                    "candidates": candidates, "file_path": file_path, "line_no": line_no,
+                })
+                return action
+
+            snap = db._conn.execute(
+                "SELECT * FROM anki_notes WHERE anki_id = ?", (parsed.id,)
+            ).fetchone()
+            if snap is None:
+                return 'edit'
+
+            f1_anki = _strip_stem(snap["field_1"])
+            f2_anki = snap["field_2"]
+            f1_diff = f1 != f1_anki
+            f2_diff = f2 != f2_anki
+
+            if parsed.note["modelName"] != snap["note_type"]:
+                db.set_state_and_action(note_uuid, "modify_type", "update_type")
+                return 'retype'
+            elif f1_diff and f2_diff:
+                db.set_state_and_action(note_uuid, "modify_fields", "update_fields")
+            elif f1_diff:
+                db.set_state_and_action(note_uuid, "modify_field_1", "update_field_1")
+            elif f2_diff:
+                db.set_state_and_action(note_uuid, "modify_field_2", "update_field_2")
+            elif parsed.note["deckName"] != snap["deck_name"]:
+                db.set_state_and_action(note_uuid, "modify_deck", "update_deck")
+            else:
+                db.set_state_and_action(note_uuid, "synced", "none")
+                return 'skip'
+            return 'edit'
+
+        candidates = db.similarity_search(f1, f2, parsed.note["modelName"])
+        if len(candidates) == 0:
+            db.set_state_and_action(note_uuid, "not_in_anki", "add")
+            return 'add'
+        action = "link" if len(candidates) == 1 else "review"
+        db.set_state_and_action(note_uuid, "not_in_anki", action)
+        self.pending_review.append({
+            "uuid": note_uuid, "parsed": parsed,
+            "candidates": candidates, "file_path": file_path, "line_no": line_no,
+        })
+        return action
+
+    def _route_atomic(self, routing: str, parsed, note_uuid: str | None, match_end: int) -> None:
+        """Route an atomic to the appropriate list based on _atomic_state_flow result."""
+        if routing == 'add':
+            self.notes_to_add.append(parsed.note)
+            self.regex_id_indexes.append(match_end)
+            self.uuid_for_regex_add.append(note_uuid)
+        elif routing == 'retype':
+            self.notes_to_delete.append(parsed.id)
+            self.notes_to_add.append(parsed.note)
+            self.regex_id_indexes.append(match_end)
+            self.uuid_for_regex_add.append(note_uuid)
+        elif routing == 'edit':
+            self.notes_to_edit.append(parsed)
+        # 'link', 'review' → pending_review only (handled in Phase 4 interactive prompt)
+        # 'skip' → no action
+
     def scan_file(self):
         """Scan file for atomic (regex) notes and route to add/edit lists."""
         logging.info("Scanning file %s for notes...", self.filename)
@@ -172,12 +263,7 @@ class File:
                 self.search(note_type, regexp)
 
     def search(self, note_type, regexp):
-        """Search the file for custom regex matches of note_type.
-
-        Ignores matches inside ignore_spans, adds matches to ignore_spans.
-        Appends new notes to notes_to_add / regex_id_indexes.
-        Appends existing notes to notes_to_edit.
-        """
+        """Search the file for atomic regex matches and route via _atomic_state_flow."""
         if regexp not in _regex_cache:
             # Anchor the plain pattern to EOL so trailing non-greedy groups
             # (e.g. `(.*?)`) expand to capture the full field instead of
@@ -190,76 +276,74 @@ class File:
                 re.compile(plain_pat, re.MULTILINE),
             )
         regexp_tags_id, regexp_id, regexp_tags, regexp_plain = _regex_cache[regexp]
+
         for match in findignore(regexp_tags_id, self.file, self.ignore_spans):
             self.ignore_spans.append(match.span())
             parsed = RegexNote(match, note_type, tags=True, id=True).parse(
-                self.target_deck,
-                url=self.url,
-                frozen_fields_dict=self.frozen_fields_dict,
-                file_stem=self.file_stem
+                self.target_deck, url=self.url,
+                frozen_fields_dict=self.frozen_fields_dict, file_stem=self.file_stem,
             )
-            if parsed.id not in globals.EXISTING_IDS:
-                logging.warning("Stale ID %d in %s was not stripped — skipping note", parsed.id, self.filename)
-            else:
-                _db_upsert_note(parsed, self._vault_rel_path(), self._line_of(match.start()))
-                self.notes_to_edit.append(parsed)
+            file_path = self._vault_rel_path()
+            line_no = self._line_of(match.start())
+            note_uuid = _db_upsert_note(parsed, file_path, line_no)
+            if globals.NOTE_DB is not None and note_uuid is None:
+                logging.warning("DB write failed for atomic at %s:%d — skipping", file_path, line_no)
+                continue
+            routing = self._atomic_state_flow(parsed, file_path, line_no, note_uuid)
+            self._route_atomic(routing, parsed, note_uuid, match.end())
+
         for match in findignore(regexp_id, self.file, self.ignore_spans):
             self.ignore_spans.append(match.span())
             parsed = RegexNote(match, note_type, tags=False, id=True).parse(
-                self.target_deck,
-                url=self.url,
-                frozen_fields_dict=self.frozen_fields_dict,
-                file_stem=self.file_stem
+                self.target_deck, url=self.url,
+                frozen_fields_dict=self.frozen_fields_dict, file_stem=self.file_stem,
             )
-            if parsed.id not in globals.EXISTING_IDS:
-                logging.warning("Stale ID %d in %s was not stripped — skipping note", parsed.id, self.filename)
-            else:
-                _db_upsert_note(parsed, self._vault_rel_path(), self._line_of(match.start()))
-                self.notes_to_edit.append(parsed)
+            file_path = self._vault_rel_path()
+            line_no = self._line_of(match.start())
+            note_uuid = _db_upsert_note(parsed, file_path, line_no)
+            if globals.NOTE_DB is not None and note_uuid is None:
+                logging.warning("DB write failed for atomic at %s:%d — skipping", file_path, line_no)
+                continue
+            routing = self._atomic_state_flow(parsed, file_path, line_no, note_uuid)
+            self._route_atomic(routing, parsed, note_uuid, match.end())
+
         for match in findignore(regexp_tags, self.file, self.ignore_spans):
             self.ignore_spans.append(match.span())
             parsed = RegexNote(match, note_type, tags=True, id=False).parse(
-                self.target_deck,
-                url=self.url,
-                frozen_fields_dict=self.frozen_fields_dict,
-                file_stem=self.file_stem
+                self.target_deck, url=self.url,
+                frozen_fields_dict=self.frozen_fields_dict, file_stem=self.file_stem,
             )
             if parsed == 1:
                 continue
-            file_path = self._vault_rel_path()
-            line_no = self._line_of(match.start())
-            parsed = self._apply_change_detection(parsed, file_path, line_no)
             if self.global_tags.strip():
                 parsed.note["tags"] += [t for t in self.global_tags.split(globals.TAG_SEP) if t]
+            file_path = self._vault_rel_path()
+            line_no = self._line_of(match.start())
             note_uuid = _db_upsert_note(parsed, file_path, line_no)
             if globals.NOTE_DB is not None and note_uuid is None:
-                logging.warning("DB write failed for regex note at %s:%d — skipping", file_path, line_no)
+                logging.warning("DB write failed for atomic at %s:%d — skipping", file_path, line_no)
                 continue
-            self.notes_to_add.append(parsed.note)
-            self.regex_id_indexes.append(match.end())
-            self.uuid_for_regex_add.append(note_uuid)
+            routing = self._atomic_state_flow(parsed, file_path, line_no, note_uuid)
+            self._route_atomic(routing, parsed, note_uuid, match.end())
+
         for match in findignore(regexp_plain, self.file, self.ignore_spans):
             self.ignore_spans.append(match.span())
             parsed = RegexNote(match, note_type, tags=False, id=False).parse(
-                self.target_deck,
-                url=self.url,
-                frozen_fields_dict=self.frozen_fields_dict,
-                file_stem=self.file_stem
+                self.target_deck, url=self.url,
+                frozen_fields_dict=self.frozen_fields_dict, file_stem=self.file_stem,
             )
             if parsed == 1:
                 continue
-            file_path = self._vault_rel_path()
-            line_no = self._line_of(match.start())
-            parsed = self._apply_change_detection(parsed, file_path, line_no)
             if self.global_tags.strip():
                 parsed.note["tags"] += [t for t in self.global_tags.split(globals.TAG_SEP) if t]
+            file_path = self._vault_rel_path()
+            line_no = self._line_of(match.start())
             note_uuid = _db_upsert_note(parsed, file_path, line_no)
             if globals.NOTE_DB is not None and note_uuid is None:
-                logging.warning("DB write failed for regex note at %s:%d — skipping", file_path, line_no)
+                logging.warning("DB write failed for atomic at %s:%d — skipping", file_path, line_no)
                 continue
-            self.notes_to_add.append(parsed.note)
-            self.regex_id_indexes.append(match.end())
-            self.uuid_for_regex_add.append(note_uuid)
+            routing = self._atomic_state_flow(parsed, file_path, line_no, note_uuid)
+            self._route_atomic(routing, parsed, note_uuid, match.end())
 
     def update_db_anki_ids(self):
         """After addNote returns IDs, persist them in the DB."""

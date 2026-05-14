@@ -13,6 +13,14 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _strip_stem(text: str | None) -> str | None:
+    """Remove <br><b>...</b> file-stem suffix injected by FormatConverter."""
+    if text is None:
+        return None
+    idx = text.find('<br><b>')
+    return text[:idx] if idx >= 0 else text
+
+
 class NoteDB:
     """SQLite-backed store for parsed notes, file hashes, and added media."""
 
@@ -31,19 +39,20 @@ class NoteDB:
     def _create_tables(self):
         self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS notes (
-                id          TEXT PRIMARY KEY,
-                anki_id     INTEGER,
-                file_path   TEXT NOT NULL,
-                line_number INTEGER NOT NULL,
-                note_type   TEXT NOT NULL,
-                field_1     TEXT,
-                field_2     TEXT,
-                image_paths TEXT,
-                tags        TEXT,
-                deck_name   TEXT,
-                state       TEXT DEFAULT 'unknown',
-                created_at  TEXT NOT NULL,
-                updated_at  TEXT NOT NULL
+                id                 TEXT PRIMARY KEY,
+                anki_id            INTEGER,
+                file_path          TEXT NOT NULL,
+                line_number        INTEGER NOT NULL,
+                note_type          TEXT NOT NULL,
+                field_1            TEXT,
+                field_2            TEXT,
+                image_paths        TEXT,
+                tags               TEXT,
+                deck_name          TEXT,
+                state              TEXT DEFAULT 'unknown',
+                recommended_action TEXT,
+                created_at         TEXT NOT NULL,
+                updated_at         TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS file_hashes (
@@ -89,10 +98,15 @@ class NoteDB:
                     WHEN (SELECT COUNT(*) FROM notes _n WHERE _n.anki_id = v.anki_id) > 1
                                                                     THEN 'synced'
                     WHEN v.note_type IS NOT a.note_type             THEN 'modify_type'
+                    WHEN (CASE WHEN INSTR(v.field_1,'<br><b>')>0 THEN SUBSTR(v.field_1,1,INSTR(v.field_1,'<br><b>')-1) ELSE v.field_1 END
+                          IS NOT
+                          CASE WHEN INSTR(a.field_1,'<br><b>')>0 THEN SUBSTR(a.field_1,1,INSTR(a.field_1,'<br><b>')-1) ELSE a.field_1 END)
+                      AND (v.field_2 IS NOT a.field_2)             THEN 'modify_fields'
                     WHEN CASE WHEN INSTR(v.field_1,'<br><b>')>0 THEN SUBSTR(v.field_1,1,INSTR(v.field_1,'<br><b>')-1) ELSE v.field_1 END
                          IS NOT
                          CASE WHEN INSTR(a.field_1,'<br><b>')>0 THEN SUBSTR(a.field_1,1,INSTR(a.field_1,'<br><b>')-1) ELSE a.field_1 END
-                      OR v.field_2 IS NOT a.field_2                THEN 'modify_fields'
+                                                                    THEN 'modify_field_1'
+                    WHEN v.field_2 IS NOT a.field_2                THEN 'modify_field_2'
                     WHEN v.deck_name IS NOT a.deck_name             THEN 'modify_deck'
                     ELSE 'synced'
                 END AS status
@@ -127,6 +141,8 @@ class NoteDB:
         notes_cols = [r[1] for r in self._conn.execute("PRAGMA table_info(notes)").fetchall()]
         if "state" not in notes_cols:
             self._conn.execute("ALTER TABLE notes ADD COLUMN state TEXT DEFAULT 'unknown'")
+        if "recommended_action" not in notes_cols:
+            self._conn.execute("ALTER TABLE notes ADD COLUMN recommended_action TEXT")
 
         fh_cols = [r[1] for r in self._conn.execute("PRAGMA table_info(file_hashes)").fetchall()]
         if "atomic_id" not in fh_cols:
@@ -232,29 +248,59 @@ class NoteDB:
         )
         self._conn.commit()
 
-    def mark_stale(self, file_path: str) -> int:
-        """Mark all notes for a file as stale. Returns row count."""
-        cur = self._conn.execute(
-            "UPDATE notes SET state = 'stale', updated_at = ? WHERE file_path = ?",
-            (_now(), file_path),
+    def set_state_and_action(self, uuid: str, state: str, action: str) -> None:
+        """Set state and recommended_action atomically."""
+        self._conn.execute(
+            "UPDATE notes SET state = ?, recommended_action = ?, updated_at = ? WHERE id = ?",
+            (state, action, _now(), uuid),
         )
         self._conn.commit()
-        return cur.rowcount
 
-    def get_stale_notes(self) -> list[dict]:
-        """Return all notes with state='stale'."""
-        rows = self._conn.execute(
-            "SELECT * FROM notes WHERE state = 'stale'"
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-    def mark_to_modify(self, uuid: str) -> None:
-        """Mark a note as explicitly approved for Anki update."""
+    def clear_recommended_action(self, uuid: str) -> None:
+        """Clear recommended_action after write script executes."""
         self._conn.execute(
-            "UPDATE notes SET state = 'to_modify', updated_at = ? WHERE id = ?",
+            "UPDATE notes SET recommended_action = NULL, updated_at = ? WHERE id = ?",
             (_now(), uuid),
         )
         self._conn.commit()
+
+    def get_pending_review(self) -> list[dict]:
+        """Return notes queued for user review."""
+        rows = self._conn.execute(
+            "SELECT * FROM notes WHERE recommended_action = 'review'"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_notes_by_state(self, state: str) -> list[dict]:
+        """Return all notes with the given state value."""
+        rows = self._conn.execute(
+            "SELECT * FROM notes WHERE state = ?", (state,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def similarity_search(
+        self,
+        field_1: str | None,
+        field_2: str | None,
+        note_type: str,
+    ) -> list[int]:
+        """Return anki_ids of orphan Anki notes matching field content and note_type.
+
+        Strips <br><b>...</b> stem suffix from field_1 before comparing.
+        Searches only anki_notes with no corresponding vault entry.
+        Returns list of matching anki_ids (empty = no match, len > 1 = ambiguous).
+        """
+        stripped_f1 = _strip_stem(field_1)
+        orphans = self._conn.execute("""
+            SELECT a.anki_id, a.field_1, a.field_2
+            FROM anki_notes a
+            WHERE a.note_type = ?
+              AND NOT EXISTS (SELECT 1 FROM notes n WHERE n.anki_id = a.anki_id)
+        """, (note_type,)).fetchall()
+        return [
+            row["anki_id"] for row in orphans
+            if _strip_stem(row["field_1"]) == stripped_f1 and row["field_2"] == field_2
+        ]
 
     def revert_note_to_anki(self, uuid: str) -> bool:
         """Overwrite vault note fields in DB with current Anki snapshot.

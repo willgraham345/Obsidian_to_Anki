@@ -202,7 +202,9 @@ def find_vault_modifications(db: NoteDB, vault_path: str) -> tuple[int, int]:
     for row in rows:
         full = os.path.join(vault_path, row["file_path"])
         if not os.path.isfile(full):
-            stale_marked += db.mark_stale(row["file_path"])
+            for note in db.get_notes_for_file(row["file_path"]):
+                db.set_state_and_action(note["id"], "stale", "review")
+                stale_marked += 1
     return abs_removed, stale_marked
 
 
@@ -426,7 +428,7 @@ def main() -> None:
         print(f"[stale] Removed {abs_r} absolute-path (test) note(s), "
               f"marked {stale_r} note(s) as stale.")
         if args.remove_stale:
-            stale_notes = db.get_stale_notes()
+            stale_notes = db.get_notes_by_state("stale")
             if not stale_notes:
                 print("[stale] No stale notes to remove.")
             else:

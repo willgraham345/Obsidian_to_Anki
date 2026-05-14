@@ -234,35 +234,59 @@ class TestReconcileOrphans:
         assert db.get_note("v-1")["anki_id"] == 9001
 
 
-class TestStaleState:
-
-    def test_mark_stale_sets_state(self, db):
-        _make_note(db, uuid="s-1", file_path="deck/gone.md")
-        count = db.mark_stale("deck/gone.md")
-        assert count == 1
-        assert db.get_note("s-1")["state"] == "stale"
-
-    def test_mark_stale_returns_row_count(self, db):
-        _make_note(db, uuid="s-1", file_path="deck/gone.md", line_number=1)
-        _make_note(db, uuid="s-2", file_path="deck/gone.md", line_number=2)
-        assert db.mark_stale("deck/gone.md") == 2
-
-    def test_get_stale_notes_returns_only_stale(self, db):
-        _make_note(db, uuid="s-1", file_path="deck/gone.md")
-        _make_note(db, uuid="s-2", file_path="deck/alive.md")
-        db.mark_stale("deck/gone.md")
-        stale = db.get_stale_notes()
-        assert len(stale) == 1
-        assert stale[0]["id"] == "s-1"
-
-    def test_mark_synced_clears_stale_state(self, db):
-        _make_note(db, uuid="s-1", file_path="deck/gone.md")
-        db.mark_stale("deck/gone.md")
-        db.mark_synced("s-1", 9001)
-        assert db.get_note("s-1")["state"] == "unknown"
+class TestStateAndAction:
 
     def test_default_state_is_unknown(self, db):
         _make_note(db, uuid="s-1")
+        assert db.get_note("s-1")["state"] == "unknown"
+
+    def test_default_recommended_action_is_null(self, db):
+        _make_note(db, uuid="s-1")
+        assert db.get_note("s-1")["recommended_action"] is None
+
+    def test_set_state_and_action(self, db):
+        _make_note(db, uuid="s-1")
+        db.set_state_and_action("s-1", "not_in_anki", "add")
+        note = db.get_note("s-1")
+        assert note["state"] == "not_in_anki"
+        assert note["recommended_action"] == "add"
+
+    def test_set_state_and_action_updates_timestamp(self, db):
+        _make_note(db, uuid="s-1")
+        before = db.get_note("s-1")["updated_at"]
+        db.set_state_and_action("s-1", "synced", "none")
+        assert db.get_note("s-1")["updated_at"] >= before
+
+    def test_clear_recommended_action(self, db):
+        _make_note(db, uuid="s-1")
+        db.set_state_and_action("s-1", "not_in_anki", "add")
+        db.clear_recommended_action("s-1")
+        assert db.get_note("s-1")["recommended_action"] is None
+
+    def test_clear_recommended_action_preserves_state(self, db):
+        _make_note(db, uuid="s-1")
+        db.set_state_and_action("s-1", "not_in_anki", "add")
+        db.clear_recommended_action("s-1")
+        assert db.get_note("s-1")["state"] == "not_in_anki"
+
+    def test_get_pending_review_returns_review_items(self, db):
+        _make_note(db, uuid="r-1", line_number=1)
+        _make_note(db, uuid="r-2", line_number=2)
+        _make_note(db, uuid="r-3", line_number=3)
+        db.set_state_and_action("r-1", "not_in_anki", "review")
+        db.set_state_and_action("r-2", "stale_id", "review")
+        db.set_state_and_action("r-3", "not_in_anki", "add")
+        items = db.get_pending_review()
+        assert len(items) == 2
+        assert {i["id"] for i in items} == {"r-1", "r-2"}
+
+    def test_get_pending_review_empty(self, db):
+        assert db.get_pending_review() == []
+
+    def test_mark_synced_sets_state_unknown(self, db):
+        _make_note(db, uuid="s-1")
+        db.set_state_and_action("s-1", "not_in_anki", "add")
+        db.mark_synced("s-1", 9001)
         assert db.get_note("s-1")["state"] == "unknown"
 
 
@@ -302,8 +326,8 @@ class TestModifyDeck:
         statuses = {r["status"] for r in rows if r["anki_id"] == 8002}
         assert statuses == {"synced"}
 
-    def test_modify_fields_takes_priority_over_modify_deck(self, db):
-        """If fields differ, status is 'modify_fields' even when decks also differ."""
+    def test_modify_field_1_takes_priority_over_modify_deck(self, db):
+        """field_1 differs → modify_field_1 even when decks also differ."""
         _make_note(db, uuid="m-3", anki_id=8003,
                    field_1="<p>NewFront</p>", deck_name="VaultDeck")
         db.upsert_anki_note(
@@ -318,7 +342,7 @@ class TestModifyDeck:
         rows = db.get_comparison_rows(exclude_synced=True)
         target = [r for r in rows if r["anki_id"] == 8003]
         assert len(target) == 1
-        assert target[0]["status"] == "modify_fields"
+        assert target[0]["status"] == "modify_field_1"
 
     def test_modify_type_status_in_view(self, db):
         """Vault note_type differs from Anki note_type → modify_type, not modify_fields."""
@@ -359,18 +383,44 @@ class TestModifyDeck:
         assert target[0]["status"] == "modify_type"
 
 
-class TestToModifyState:
+class TestSimilaritySearch:
 
-    def test_mark_to_modify_sets_state(self, db):
-        _make_note(db, uuid="tm-1")
-        db.mark_to_modify("tm-1")
-        assert db.get_note("tm-1")["state"] == "to_modify"
+    def test_exact_match_returns_anki_id(self, db):
+        _make_anki_note(db, anki_id=5001, field_1="<p>Q</p>", field_2="<p>A</p>")
+        results = db.similarity_search("<p>Q</p>", "<p>A</p>", "Basic")
+        assert results == [5001]
 
-    def test_mark_to_modify_updates_timestamp(self, db):
-        _make_note(db, uuid="tm-2")
-        before = db.get_note("tm-2")["updated_at"]
-        db.mark_to_modify("tm-2")
-        assert db.get_note("tm-2")["updated_at"] >= before
+    def test_no_match_returns_empty(self, db):
+        _make_anki_note(db, anki_id=5001, field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.similarity_search("<p>Different</p>", "<p>A</p>", "Basic") == []
+
+    def test_stem_stripped_before_compare(self, db):
+        _make_anki_note(db, anki_id=5002, field_1="<p>Q</p>", field_2="<p>A</p>")
+        results = db.similarity_search("<p>Q</p><br><b>note-stem</b>", "<p>A</p>", "Basic")
+        assert results == [5002]
+
+    def test_linked_note_excluded(self, db):
+        """Anki note already linked to a vault note — not returned as candidate."""
+        _make_note(db, uuid="v-1", anki_id=5003, field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=5003, field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.similarity_search("<p>Q</p>", "<p>A</p>", "Basic") == []
+
+    def test_note_type_scoped(self, db):
+        _make_anki_note(db, anki_id=5004, note_type="Cloze",
+                        field_1="<p>Q</p>", field_2="<p>A</p>")
+        assert db.similarity_search("<p>Q</p>", "<p>A</p>", "Basic") == []
+
+    def test_multiple_candidates_returned(self, db):
+        _make_anki_note(db, anki_id=5005, field_1="<p>Q</p>", field_2="<p>A</p>")
+        _make_anki_note(db, anki_id=5006, field_1="<p>Q</p>", field_2="<p>A</p>")
+        results = db.similarity_search("<p>Q</p>", "<p>A</p>", "Basic")
+        assert set(results) == {5005, 5006}
+
+    def test_null_field_2_matches(self, db):
+        _make_anki_note(db, anki_id=5007, note_type="Cloze",
+                        field_1="<p>{{c1::text}}</p>", field_2=None)
+        results = db.similarity_search("<p>{{c1::text}}</p>", None, "Cloze")
+        assert results == [5007]
 
     def test_revert_note_to_anki_copies_fields(self, db):
         _make_note(db, uuid="rv-1", anki_id=7001,
@@ -483,6 +533,41 @@ class TestClearAnkiNotes:
     def test_idempotent_on_empty(self, db):
         db.clear_anki_notes()
         db.clear_anki_notes()  # should not raise
+
+
+class TestModifyFieldStatuses:
+
+    def _anki(self, db, anki_id, f1, f2, deck="Default"):
+        db.upsert_anki_note(anki_id, "Basic", f1, f2, [], deck, None)
+
+    def test_modify_field_1_only(self, db):
+        _make_note(db, uuid="mf-1", anki_id=9101, field_1="<p>New</p>", field_2="<p>Back</p>")
+        self._anki(db, 9101, "<p>Old</p>", "<p>Back</p>")
+        rows = db.get_comparison_rows()
+        target = next(r for r in rows if r["anki_id"] == 9101)
+        assert target["status"] == "modify_field_1"
+
+    def test_modify_field_2_only(self, db):
+        _make_note(db, uuid="mf-2", anki_id=9102, field_1="<p>Same</p>", field_2="<p>New</p>")
+        self._anki(db, 9102, "<p>Same</p>", "<p>Old</p>")
+        rows = db.get_comparison_rows()
+        target = next(r for r in rows if r["anki_id"] == 9102)
+        assert target["status"] == "modify_field_2"
+
+    def test_modify_fields_both(self, db):
+        _make_note(db, uuid="mf-3", anki_id=9103, field_1="<p>NewF</p>", field_2="<p>NewB</p>")
+        self._anki(db, 9103, "<p>OldF</p>", "<p>OldB</p>")
+        rows = db.get_comparison_rows()
+        target = next(r for r in rows if r["anki_id"] == 9103)
+        assert target["status"] == "modify_fields"
+
+    def test_stem_suffix_not_a_field_change(self, db):
+        _make_note(db, uuid="mf-4", anki_id=9104,
+                   field_1="<p>Q</p><br><b>stem</b>", field_2="<p>A</p>")
+        self._anki(db, 9104, "<p>Q</p>", "<p>A</p>")
+        rows = db.get_comparison_rows(exclude_synced=False)
+        target = next(r for r in rows if r["anki_id"] == 9104)
+        assert target["status"] == "synced"
 
 
 class TestGetComparisonSummary:

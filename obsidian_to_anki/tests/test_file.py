@@ -572,3 +572,248 @@ class TestUpdateDbAnkiIds:
         with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
             f = File("a.md")
         f.update_db_anki_ids()  # should not raise
+
+
+class TestAtomicStateFlow:
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        globals.CONFIG_DATA = {
+            "Vault": "",
+            "DECK_LINE": "Deck",
+            "TAG_LINE": "Tags",
+            "Comment": False,
+            "ATOMICS": {}
+        }
+        globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
+        globals.DECK_REGEXP = re.compile(r"^Deck(?:\n|: )(.*)", re.MULTILINE)
+        globals.TAG_REGEXP = re.compile(r"^Tags(?:\n|: )(.*)", re.MULTILINE)
+        globals.OBS_INLINE_MATH_REGEXP = re.compile(r"(?<!\$)\$(?!\$)(.*?)(?<!\$)\$(?!\$)", re.DOTALL)
+        globals.OBS_DISPLAY_MATH_REGEXP = re.compile(r"\$\$(.*?)\$\$", re.DOTALL)
+        globals.OBS_CODE_REGEXP = re.compile(r"(?<!`)`(?!`)(.*?)(?<!`)`(?!`)", re.DOTALL)
+        globals.OBS_DISPLAY_CODE_REGEXP = re.compile(r"```[\s\S]*?```")
+        globals.NOTE_DICT_TEMPLATE = {"tags": [], "deckName": "Default"}
+        globals.FIELDS_DICT = {}
+        globals.ID_PREFIX = "ID: "
+        globals.TAG_SEP = " "
+        globals.EXISTING_IDS = []
+        db = NoteDB(":memory:")
+        globals.NOTE_DB = db
+        with patch('builtins.open', mock_open(read_data="")):
+            with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
+                self.file = File("a.md")
+        self.file.pending_review = []
+        self.db = db
+        yield
+        db.close()
+        globals.NOTE_DB = None
+        globals.EXISTING_IDS = []
+
+    def _parsed(self, anki_id=None, model="Basic", f1="<p>Q</p>", f2="<p>A</p>", deck="Default"):
+        note = {
+            "modelName": model,
+            "fields": {"Front": f1, "Back": f2},
+            "tags": [],
+            "deckName": deck,
+            "audio": [],
+        }
+        return globals.Note_and_id(note=note, id=anki_id)
+
+    def _insert_vault_note(self, uuid="u1", anki_id=None, f1="<p>Q</p>", f2="<p>A</p>",
+                           model="Basic", deck="Default"):
+        self.db.upsert_note(
+            uuid=uuid, anki_id=anki_id, file_path="deck/a.md", line_number=1,
+            note_type=model, field_1=f1, field_2=f2,
+            image_paths=[], tags=[], deck_name=deck,
+        )
+
+    def _insert_anki_snap(self, anki_id=42, note_type="Basic", f1="<p>Q</p>",
+                          f2="<p>A</p>", deck="Default"):
+        self.db.upsert_anki_note(
+            anki_id=anki_id, note_type=note_type, field_1=f1, field_2=f2,
+            tags=[], deck_name=deck, mod_timestamp=None,
+        )
+
+    # --- DB=None / uuid=None fallbacks ---
+
+    def test_db_none_has_id_in_existing_ids_returns_edit(self):
+        globals.NOTE_DB = None
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=42)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, None)
+        assert result == 'edit'
+
+    def test_db_none_no_id_returns_add(self):
+        globals.NOTE_DB = None
+        parsed = self._parsed(anki_id=None)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, None)
+        assert result == 'add'
+
+    def test_uuid_none_has_id_in_existing_ids_returns_edit(self):
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=42)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, None)
+        assert result == 'edit'
+
+    def test_uuid_none_no_id_returns_add(self):
+        parsed = self._parsed(anki_id=None)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, None)
+        assert result == 'add'
+
+    # --- stale_id branch (parsed.id not in EXISTING_IDS) ---
+
+    def test_stale_id_no_candidates_returns_review(self):
+        self._insert_vault_note(anki_id=42)
+        globals.EXISTING_IDS = []
+        parsed = self._parsed(anki_id=42)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'review'
+        row = self.db.get_note("u1")
+        assert row["state"] == "stale_id"
+        assert row["recommended_action"] == "review"
+        assert len(self.file.pending_review) == 1
+
+    def test_stale_id_one_candidate_returns_link(self):
+        self._insert_vault_note(anki_id=42)
+        globals.EXISTING_IDS = []
+        self._insert_anki_snap(anki_id=99, f1="<p>Q</p>", f2="<p>A</p>")
+        parsed = self._parsed(anki_id=42)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'link'
+        row = self.db.get_note("u1")
+        assert row["state"] == "stale_id"
+        assert row["recommended_action"] == "link"
+        assert self.file.pending_review[0]["uuid"] == "u1"
+        assert self.file.pending_review[0]["candidates"] == [99]
+
+    def test_stale_id_multiple_candidates_returns_review(self):
+        self._insert_vault_note(anki_id=42)
+        globals.EXISTING_IDS = []
+        self._insert_anki_snap(anki_id=91, f1="<p>Q</p>", f2="<p>A</p>")
+        self._insert_anki_snap(anki_id=92, f1="<p>Q</p>", f2="<p>A</p>")
+        parsed = self._parsed(anki_id=42)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'review'
+        assert self.db.get_note("u1")["recommended_action"] == "review"
+
+    # --- synced anki_id but no snap row ---
+
+    def test_synced_id_no_snap_falls_back_to_edit(self):
+        self._insert_vault_note(anki_id=42)
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=42)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'edit'
+
+    # --- modify_type ---
+
+    def test_type_changed_returns_retype(self):
+        self._insert_vault_note(anki_id=42, model="Basic")
+        self._insert_anki_snap(anki_id=42, note_type="Cloze")
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=42, model="Basic")
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'retype'
+        row = self.db.get_note("u1")
+        assert row["state"] == "modify_type"
+        assert row["recommended_action"] == "update_type"
+
+    # --- field diff states ---
+
+    def test_both_fields_changed_returns_edit_modify_fields(self):
+        self._insert_vault_note(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>")
+        self._insert_anki_snap(anki_id=42, f1="<p>OLD</p>", f2="<p>OLD</p>")
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>")
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'edit'
+        row = self.db.get_note("u1")
+        assert row["state"] == "modify_fields"
+        assert row["recommended_action"] == "update_fields"
+
+    def test_field_1_only_changed_returns_edit_modify_field_1(self):
+        self._insert_vault_note(anki_id=42, f1="<p>New</p>", f2="<p>A</p>")
+        self._insert_anki_snap(anki_id=42, f1="<p>Old</p>", f2="<p>A</p>")
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=42, f1="<p>New</p>", f2="<p>A</p>")
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'edit'
+        row = self.db.get_note("u1")
+        assert row["state"] == "modify_field_1"
+        assert row["recommended_action"] == "update_field_1"
+
+    def test_field_2_only_changed_returns_edit_modify_field_2(self):
+        self._insert_vault_note(anki_id=42, f1="<p>Q</p>", f2="<p>New</p>")
+        self._insert_anki_snap(anki_id=42, f1="<p>Q</p>", f2="<p>Old</p>")
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=42, f1="<p>Q</p>", f2="<p>New</p>")
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'edit'
+        row = self.db.get_note("u1")
+        assert row["state"] == "modify_field_2"
+        assert row["recommended_action"] == "update_field_2"
+
+    def test_deck_only_changed_returns_edit_modify_deck(self):
+        self._insert_vault_note(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>", deck="NewDeck")
+        self._insert_anki_snap(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>", deck="OldDeck")
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>", deck="NewDeck")
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'edit'
+        row = self.db.get_note("u1")
+        assert row["state"] == "modify_deck"
+        assert row["recommended_action"] == "update_deck"
+
+    def test_all_match_returns_skip(self):
+        self._insert_vault_note(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>")
+        self._insert_anki_snap(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>")
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>")
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'skip'
+        row = self.db.get_note("u1")
+        assert row["state"] == "synced"
+        assert row["recommended_action"] == "none"
+
+    def test_stem_suffix_treated_as_synced(self):
+        """field_1 with stem suffix compares equal to stored field without suffix."""
+        self._insert_vault_note(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>")
+        self._insert_anki_snap(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>")
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=42, f1="<p>Q</p><br><b>note-stem</b>", f2="<p>A</p>")
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'skip'
+
+    # --- no anki_id branch ---
+
+    def test_no_anki_id_no_candidates_returns_add(self):
+        self._insert_vault_note(anki_id=None)
+        parsed = self._parsed(anki_id=None)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'add'
+        row = self.db.get_note("u1")
+        assert row["state"] == "not_in_anki"
+        assert row["recommended_action"] == "add"
+
+    def test_no_anki_id_one_candidate_returns_link(self):
+        self._insert_vault_note(anki_id=None)
+        self._insert_anki_snap(anki_id=77, f1="<p>Q</p>", f2="<p>A</p>")
+        parsed = self._parsed(anki_id=None)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'link'
+        row = self.db.get_note("u1")
+        assert row["state"] == "not_in_anki"
+        assert row["recommended_action"] == "link"
+        assert self.file.pending_review[0]["candidates"] == [77]
+
+    def test_no_anki_id_multiple_candidates_returns_review(self):
+        self._insert_vault_note(anki_id=None)
+        self._insert_anki_snap(anki_id=81, f1="<p>Q</p>", f2="<p>A</p>")
+        self._insert_anki_snap(anki_id=82, f1="<p>Q</p>", f2="<p>A</p>")
+        parsed = self._parsed(anki_id=None)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'review'
+        row = self.db.get_note("u1")
+        assert row["state"] == "not_in_anki"
+        assert row["recommended_action"] == "review"
+        assert len(self.file.pending_review) == 1

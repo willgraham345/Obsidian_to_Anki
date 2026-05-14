@@ -126,7 +126,7 @@ class TestFindVaultModifications:
 
     def test_already_stale_not_recounted(self, tmp_path, db):
         self._make_note(db, "n-1", "gone.md")
-        db.mark_stale("gone.md")
+        db.set_state_and_action("n-1", "stale", "review")
         _, stale_r = find_vault_modifications(db, str(tmp_path))
         assert stale_r == 0
 
