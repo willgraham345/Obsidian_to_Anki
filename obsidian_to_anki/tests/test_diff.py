@@ -1,4 +1,4 @@
-"""Tests for diff.py — focusing on HTML-only diff filtering in build_diff."""
+"""Tests for build_diff / _plain — HTML-only diff filtering (functions now live in scan.py)."""
 
 import os
 import sys
@@ -9,14 +9,14 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from src.obsidian_to_anki.db import NoteDB
 
-_DIFF_PATH = os.path.join(os.path.dirname(__file__), "..", "diff.py")
-_spec = _ilu.spec_from_file_location("diff", _DIFF_PATH)
-_diff_mod = _ilu.module_from_spec(_spec)
-_spec.loader.exec_module(_diff_mod)  # type: ignore
+_SCAN_PATH = os.path.join(os.path.dirname(__file__), "..", "scan.py")
+_spec = _ilu.spec_from_file_location("scan", _SCAN_PATH)
+_scan_mod = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_scan_mod)  # type: ignore
 
-build_diff = _diff_mod.build_diff
-_plain = _diff_mod._plain
-_diff_globals = _diff_mod.globals
+build_diff = _scan_mod.build_diff
+_plain = _scan_mod._plain
+_diff_globals = _scan_mod.globals
 
 
 # ── _plain ────────────────────────────────────────────────────────────────────
