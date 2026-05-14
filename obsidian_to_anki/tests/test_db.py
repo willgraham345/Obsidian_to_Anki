@@ -302,8 +302,8 @@ class TestModifyDeck:
         statuses = {r["status"] for r in rows if r["anki_id"] == 8002}
         assert statuses == {"synced"}
 
-    def test_modified_takes_priority_over_modify_deck(self, db):
-        """If fields differ, status is 'modified' even when decks also differ."""
+    def test_modify_fields_takes_priority_over_modify_deck(self, db):
+        """If fields differ, status is 'modify_fields' even when decks also differ."""
         _make_note(db, uuid="m-3", anki_id=8003,
                    field_1="<p>NewFront</p>", deck_name="VaultDeck")
         db.upsert_anki_note(
@@ -318,7 +318,45 @@ class TestModifyDeck:
         rows = db.get_comparison_rows(exclude_synced=True)
         target = [r for r in rows if r["anki_id"] == 8003]
         assert len(target) == 1
-        assert target[0]["status"] == "modified"
+        assert target[0]["status"] == "modify_fields"
+
+    def test_modify_type_status_in_view(self, db):
+        """Vault note_type differs from Anki note_type → modify_type, not modify_fields."""
+        _make_note(db, uuid="m-4", anki_id=8004,
+                   field_1="<p>Front</p>", field_2="<p>Back</p>",
+                   deck_name="Default", note_type="Basic")
+        db.upsert_anki_note(
+            anki_id=8004,
+            note_type="Basic (reversed card)",
+            field_1="<p>Front</p>",
+            field_2="<p>Back</p>",
+            tags=[],
+            deck_name="Default",
+            mod_timestamp=None,
+        )
+        rows = db.get_comparison_rows(exclude_synced=True)
+        target = [r for r in rows if r["anki_id"] == 8004]
+        assert len(target) == 1
+        assert target[0]["status"] == "modify_type"
+
+    def test_modify_type_takes_priority_over_modify_fields(self, db):
+        """Type change takes priority over field change."""
+        _make_note(db, uuid="m-5", anki_id=8005,
+                   field_1="<p>NewFront</p>", field_2="<p>Back</p>",
+                   deck_name="Default", note_type="Basic")
+        db.upsert_anki_note(
+            anki_id=8005,
+            note_type="Basic (reversed card)",
+            field_1="<p>OldFront</p>",
+            field_2="<p>Back</p>",
+            tags=[],
+            deck_name="Default",
+            mod_timestamp=None,
+        )
+        rows = db.get_comparison_rows(exclude_synced=True)
+        target = [r for r in rows if r["anki_id"] == 8005]
+        assert len(target) == 1
+        assert target[0]["status"] == "modify_type"
 
 
 class TestToModifyState:

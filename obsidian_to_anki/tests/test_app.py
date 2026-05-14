@@ -81,20 +81,9 @@ class TestApp:
         app = App(Config())
         app.gen_regexp()
 
-        assert globals.NOTE_REGEXP is not None
         assert globals.DECK_REGEXP is not None
-        assert globals.EMPTY_REGEXP is not None
         assert globals.TAG_REGEXP is not None
-        assert globals.INLINE_REGEXP is not None
-        assert globals.INLINE_EMPTY_REGEXP is not None
         assert globals.VAULT_PATH_REGEXP is not None
-        assert globals.FROZEN_REGEXP is not None
-
-        # NOTE_REGEXP format: prefix + title_line + newline + (content) + suffix
-        test_note_content = "## My Note\nSome content\n## "
-        match = globals.NOTE_REGEXP.search(test_note_content)
-        assert match is not None
-        assert "Some content" in match.group(1)
 
     @patch('src.obsidian_to_anki.config.Config.load_config')
     @patch('src.obsidian_to_anki.data.Data.load_data_file')

@@ -88,10 +88,11 @@ class NoteDB:
                     WHEN a.anki_id IS NULL                          THEN 'stale_id'
                     WHEN (SELECT COUNT(*) FROM notes _n WHERE _n.anki_id = v.anki_id) > 1
                                                                     THEN 'synced'
+                    WHEN v.note_type IS NOT a.note_type             THEN 'modify_type'
                     WHEN CASE WHEN INSTR(v.field_1,'<br><b>')>0 THEN SUBSTR(v.field_1,1,INSTR(v.field_1,'<br><b>')-1) ELSE v.field_1 END
                          IS NOT
                          CASE WHEN INSTR(a.field_1,'<br><b>')>0 THEN SUBSTR(a.field_1,1,INSTR(a.field_1,'<br><b>')-1) ELSE a.field_1 END
-                      OR v.field_2 IS NOT a.field_2                THEN 'modified'
+                      OR v.field_2 IS NOT a.field_2                THEN 'modify_fields'
                     WHEN v.deck_name IS NOT a.deck_name             THEN 'modify_deck'
                     ELSE 'synced'
                 END AS status

@@ -5,7 +5,7 @@ import re
 import hashlib
 
 from src.obsidian_to_anki.file import File, _extract_images, _db_upsert_note
-from src.obsidian_to_anki.note import Note, InlineNote, RegexNote
+from src.obsidian_to_anki.note import RegexNote
 from src.obsidian_to_anki.anki_connect import AnkiConnect
 from src.obsidian_to_anki import globals
 from src.obsidian_to_anki.utils import findignore, spans
@@ -18,23 +18,14 @@ class TestFile:
     def setup(self):
         globals.CONFIG_DATA = {
             "Vault": "",
-            "NOTE_PREFIX": re.escape("## "),
-            "NOTE_SUFFIX": re.escape("## "),
             "DECK_LINE": "Deck",
             "TAG_LINE": "Tags",
-            "INLINE_PREFIX": re.escape("{{"),
-            "INLINE_SUFFIX": re.escape("}}"),
-            "FROZEN_LINE": "Frozen",
             "Comment": False,
             "ATOMICS": {}
         }
         globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
-        globals.NOTE_REGEXP = re.compile(r"## (.+?)\n(.*?)\n## ", re.DOTALL)
-        globals.INLINE_REGEXP = re.compile(r"\{\{(.*?)\}\}")
-        globals.EMPTY_REGEXP = re.compile(r"^## \n(?:<!--)?ID: (\d+)[\s\S]*?\n## ", re.MULTILINE)
         globals.DECK_REGEXP = re.compile(r"^Deck(?:\n|: )(.*)", re.MULTILINE)
         globals.TAG_REGEXP = re.compile(r"^Tags(?:\n|: )(.*)", re.MULTILINE)
-        globals.FROZEN_REGEXP = re.compile(r"Frozen - (.*?):\n((?:[^\n][\n]?)+)")
         globals.OBS_INLINE_MATH_REGEXP = re.compile(r"(?<!\$)\$(?!\$)(.*?)(?<!\$)\$(?!\$)", re.DOTALL)
         globals.OBS_DISPLAY_MATH_REGEXP = re.compile(r"\$\$(.*?)\$\$", re.DOTALL)
         globals.OBS_CODE_REGEXP = re.compile(r"(?<!`)`(?!`)(.*?)(?<!`)`(?!`)", re.DOTALL)
@@ -71,17 +62,12 @@ class TestFile:
 
     def test_setup_frozen_fields_dict(self):
         file_instance = File("dummy.md")
-        file_instance.file = """Frozen - NoteType1:\nField1: Value1\nField2: Value2"""
         globals.FIELDS_DICT = {"NoteType1": ["Field1", "Field2"], "NoteType2": ["FieldA"]}
-
-        with patch('src.obsidian_to_anki.file.Note') as MockNote:
-            mock_note_instance = MockNote.return_value
-            mock_note_instance.fields = {"Field1": "Value1", "Field2": "Value2"}
-            file_instance.setup_frozen_fields_dict()
-            assert file_instance.frozen_fields_dict == {
-                "NoteType1": {"Field1": "Value1", "Field2": "Value2"},
-                "NoteType2": {"FieldA": ""}
-            }
+        file_instance.setup_frozen_fields_dict()
+        assert file_instance.frozen_fields_dict == {
+            "NoteType1": {"Field1": "", "Field2": ""},
+            "NoteType2": {"FieldA": ""}
+        }
 
     def test_setup_target_deck(self):
         file_instance = File("dummy.md")
@@ -175,45 +161,6 @@ class TestFile:
         file_instance.setup_global_tags()
         assert file_instance.global_tags == ""
 
-    @patch('src.obsidian_to_anki.file.File.setup_frozen_fields_dict')
-    @patch('src.obsidian_to_anki.file.File.setup_target_deck')
-    @patch('src.obsidian_to_anki.file.File.setup_global_tags')
-    @patch('src.obsidian_to_anki.file.Note')
-    @patch('src.obsidian_to_anki.file.InlineNote')
-    def test_scan_file(self, MockInlineNote, MockNote, mock_setup_global_tags, mock_setup_target_deck, mock_setup_frozen_fields_dict):
-        file_content = (
-            "\n## Note to Add\ncontent\n## \n"
-            "{{Inline Note to Add}}\n"
-            "## Note to Edit\ncontent\n## \n"
-            "## \nID: 67890\n## \n"
-        )
-        file_instance = File("dummy.md")
-        file_instance.file = file_content
-        file_instance.url = "mock_url"
-        file_instance.frozen_fields_dict = {}
-        globals.EXISTING_IDS = [12345]
-
-        # Mock Note and InlineNote parsing
-        mock_note_to_add = MagicMock(id=None, note={"tags": []})
-        mock_note_to_edit = MagicMock(id=12345, note={"tags": []})
-        mock_inline_note_to_add = MagicMock(id=None, note={"tags": []})
-
-        MockNote.return_value.parse.side_effect = [mock_note_to_add, mock_note_to_edit]
-        MockInlineNote.return_value.parse.return_value = mock_inline_note_to_add
-
-        file_instance.target_deck = "Default"
-        file_instance.global_tags = ""
-        file_instance.scan_file()
-
-        assert len(file_instance.notes_to_add) == 1
-        assert len(file_instance.inline_notes_to_add) == 1
-        assert len(file_instance.notes_to_edit) == 1
-        assert len(file_instance.notes_to_delete) == 1 # From <!--id:67890-->
-        assert file_instance.notes_to_add[0] == mock_note_to_add.note
-        assert file_instance.inline_notes_to_add[0] == mock_inline_note_to_add.note
-        assert file_instance.notes_to_edit[0] == mock_note_to_edit
-        assert file_instance.notes_to_delete[0] == 67890
-
     @patch('src.obsidian_to_anki.file.spans')
     def test_add_spans_to_ignore(self, mock_spans):
         file_instance = File("dummy.md")
@@ -237,18 +184,16 @@ class TestFile:
     @patch('src.obsidian_to_anki.file.File.setup_global_tags')
     @patch('src.obsidian_to_anki.file.File.add_spans_to_ignore')
     @patch('src.obsidian_to_anki.file.File.search')
-    def test_scan_file_calls_search_for_custom_regexps(self, mock_search, mock_add_spans, *_):
+    def test_scan_file_calls_search_for_atomics(self, mock_search, mock_add_spans, *_):
         globals.CONFIG_DATA["ATOMICS"] = {"MyNoteType": "MY_REGEX"}
-        file_content = "## \nID: 12345\n## "
         file_instance = File("dummy.md")
-        file_instance.file = file_content
-        globals.EXISTING_IDS = [12345]
+        file_instance.file = "some content"
 
         file_instance.scan_file()
 
         mock_add_spans.assert_called_once()
         mock_search.assert_called_once_with("MyNoteType", "MY_REGEX")
-        assert file_instance.notes_to_delete == [12345]
+        assert file_instance.notes_to_delete == []
 
     @patch('src.obsidian_to_anki.file.findignore')
     @patch('src.obsidian_to_anki.file.RegexNote')
@@ -312,12 +257,11 @@ class TestFile:
     @patch('src.obsidian_to_anki.file.AnkiConnect.request')
     def test_get_add_notes(self, mock_anki_request):
         file_instance = File("dummy.md")
-        file_instance.notes_to_add = [{"note": "add1"}]
-        file_instance.inline_notes_to_add = [{"note": "inline_add1"}]
+        file_instance.notes_to_add = [{"note": "add1"}, {"note": "add2"}]
         result = file_instance.get_add_notes()
         mock_anki_request.assert_has_calls([
             call("addNote", note={"note": "add1"}),
-            call("addNote", note={"note": "inline_add1"}),
+            call("addNote", note={"note": "add2"}),
             call("multi", actions=[mock_anki_request.return_value, mock_anki_request.return_value])
         ], any_order=True)
         assert result == mock_anki_request.return_value
@@ -474,13 +418,8 @@ class TestApplyChangeDetection:
     def setup(self):
         globals.CONFIG_DATA = {
             "Vault": "",
-            "NOTE_PREFIX": re.escape("## "),
-            "NOTE_SUFFIX": re.escape("## "),
             "DECK_LINE": "Deck",
             "TAG_LINE": "Tags",
-            "INLINE_PREFIX": re.escape("{{"),
-            "INLINE_SUFFIX": re.escape("}}"),
-            "FROZEN_LINE": "Frozen",
             "Comment": False,
             "ATOMICS": {}
         }
@@ -501,8 +440,8 @@ class TestApplyChangeDetection:
 
     def _parsed(self, model="Basic", f1="<p>New</p>", f2="<p>A</p>"):
         note = {"modelName": model, "fields": {"Front": f1, "Back": f2},
-                "tags": [], "deckName": "Default"}
-        return MagicMock(id=None, note=note)
+                "tags": [], "deckName": "Default", "audio": []}
+        return globals.Note_and_id(note=note, id=None)
 
     def test_no_db_passthrough(self):
         globals.NOTE_DB = None
@@ -513,35 +452,67 @@ class TestApplyChangeDetection:
 
     def test_parsed_has_id_passthrough(self):
         f = self._file()
-        parsed = MagicMock(id=123, note={"modelName": "Basic",
-                                          "fields": {"Front": "<p>Q</p>", "Back": "<p>A</p>"},
-                                          "tags": [], "deckName": "Default"})
+        note = {"modelName": "Basic", "fields": {"Front": "<p>Q</p>", "Back": "<p>A</p>"},
+                "tags": [], "deckName": "Default", "audio": []}
+        parsed = globals.Note_and_id(note=note, id=123)
         result = f._apply_change_detection(parsed, "deck/a.md", 5)
         assert result is parsed
 
-    def test_changed_content_queues_deletion(self):
+    def test_changed_content_routes_to_edit(self):
         globals.NOTE_DB.upsert_note(
             uuid="u1", anki_id=42, file_path="deck/a.md", line_number=5,
             note_type="Basic", field_1="<p>Old</p>", field_2="<p>A</p>",
             image_paths=[], tags=[], deck_name="Default"
         )
+        globals.EXISTING_IDS = [42]
         f = self._file()
         parsed = self._parsed(f1="<p>New</p>")
-        f._apply_change_detection(parsed, "deck/a.md", 5)
-        assert 42 in f.notes_to_delete
+        result = f._apply_change_detection(parsed, "deck/a.md", 5)
+        assert result.id == 42
+        assert f.notes_to_delete == []
 
-    def test_unchanged_content_no_deletion(self):
+    def test_changed_content_stale_id_passthrough(self):
+        """ID not in Anki: note falls through to re-add, not in-place update."""
+        globals.NOTE_DB.upsert_note(
+            uuid="u1", anki_id=42, file_path="deck/a.md", line_number=5,
+            note_type="Basic", field_1="<p>Old</p>", field_2="<p>A</p>",
+            image_paths=[], tags=[], deck_name="Default"
+        )
+        globals.EXISTING_IDS = []  # 42 is gone from Anki
+        f = self._file()
+        parsed = self._parsed(f1="<p>New</p>")
+        result = f._apply_change_detection(parsed, "deck/a.md", 5)
+        assert result.id is None
+        assert f.notes_to_delete == []
+
+    def test_unchanged_content_passthrough(self):
         globals.NOTE_DB.upsert_note(
             uuid="u1", anki_id=42, file_path="deck/a.md", line_number=5,
             note_type="Basic", field_1="<p>Same</p>", field_2="<p>A</p>",
             image_paths=[], tags=[], deck_name="Default"
         )
+        globals.EXISTING_IDS = [42]
         f = self._file()
         parsed = self._parsed(f1="<p>Same</p>", f2="<p>A</p>")
-        f._apply_change_detection(parsed, "deck/a.md", 5)
+        result = f._apply_change_detection(parsed, "deck/a.md", 5)
+        assert result.id is None
         assert f.notes_to_delete == []
 
-    def test_no_anki_id_no_deletion(self):
+    def test_stem_suffix_not_treated_as_change(self):
+        """field_1 differs only by <br><b>stem</b> suffix → no modification routed."""
+        globals.NOTE_DB.upsert_note(
+            uuid="u1", anki_id=42, file_path="deck/a.md", line_number=5,
+            note_type="Basic", field_1="<p>Same</p>", field_2="<p>A</p>",
+            image_paths=[], tags=[], deck_name="Default"
+        )
+        globals.EXISTING_IDS = [42]
+        f = self._file()
+        parsed = self._parsed(f1="<p>Same</p><br><b>note-stem</b>", f2="<p>A</p>")
+        result = f._apply_change_detection(parsed, "deck/a.md", 5)
+        assert result.id is None
+        assert f.notes_to_delete == []
+
+    def test_no_anki_id_passthrough(self):
         globals.NOTE_DB.upsert_note(
             uuid="u1", anki_id=None, file_path="deck/a.md", line_number=5,
             note_type="Basic", field_1="<p>Old</p>", field_2="<p>A</p>",
@@ -549,7 +520,8 @@ class TestApplyChangeDetection:
         )
         f = self._file()
         parsed = self._parsed(f1="<p>New</p>")
-        f._apply_change_detection(parsed, "deck/a.md", 5)
+        result = f._apply_change_detection(parsed, "deck/a.md", 5)
+        assert result.id is None
         assert f.notes_to_delete == []
 
 
@@ -561,13 +533,8 @@ class TestUpdateDbAnkiIds:
         globals.NOTE_DB = db
         globals.CONFIG_DATA = {
             "Vault": "",
-            "NOTE_PREFIX": re.escape("## "),
-            "NOTE_SUFFIX": re.escape("## "),
             "DECK_LINE": "Deck",
             "TAG_LINE": "Tags",
-            "INLINE_PREFIX": re.escape("{{"),
-            "INLINE_SUFFIX": re.escape("}}"),
-            "FROZEN_LINE": "Frozen",
             "Comment": False,
             "ATOMICS": {}
         }
@@ -578,18 +545,15 @@ class TestUpdateDbAnkiIds:
         db.close()
         globals.NOTE_DB = None
 
-    def test_marks_synced_for_block_notes(self):
+    def test_marks_synced_for_regex_notes(self):
         db = globals.NOTE_DB
         db.upsert_note(uuid="u1", anki_id=None, file_path="a.md", line_number=1,
                        note_type="Basic", field_1="q", field_2="a",
                        image_paths=[], tags=[], deck_name="Default")
         with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
             f = File("a.md")
-        f.id_indexes = [10]
-        f.regex_id_indexes = []
-        f.uuid_for_add = ["u1"]
-        f.uuid_for_regex_add = []
-        f.uuid_for_inline_add = []
+        f.regex_id_indexes = [10]
+        f.uuid_for_regex_add = ["u1"]
         f.note_ids = [999]
         f.update_db_anki_ids()
         row = db.get_note("u1")
@@ -599,11 +563,8 @@ class TestUpdateDbAnkiIds:
         globals.NOTE_DB = None
         with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
             f = File("a.md")
-        f.id_indexes = []
         f.regex_id_indexes = []
-        f.uuid_for_add = []
         f.uuid_for_regex_add = []
-        f.uuid_for_inline_add = []
         f.note_ids = []
         f.update_db_anki_ids()  # should not raise
 

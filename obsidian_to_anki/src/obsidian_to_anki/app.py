@@ -222,22 +222,7 @@ class App:
         self.setup_parser_optionals()
 
     def gen_regexp(self):
-        """Generates and compiles the regular expressions used throughout the application.
-
-        These regular expressions are used for parsing notes, decks, tags, and
-        other elements from the input files based on the configured syntax.
-        """
-        globals.NOTE_REGEXP = re.compile(
-            r"".join(
-                [
-                    r"^",
-                    globals.CONFIG_DATA["NOTE_PREFIX"],
-                    r".*?\n([\s\S]*?\n)",
-                    globals.CONFIG_DATA["NOTE_SUFFIX"],
-                    r"\n?"
-                ]
-            ), flags=re.MULTILINE
-        )
+        """Generates and compiles the regular expressions used throughout the application."""
         globals.DECK_REGEXP = re.compile(
             "".join(
                 [
@@ -247,45 +232,12 @@ class App:
                 ]
             ), flags=re.MULTILINE
         )
-        globals.EMPTY_REGEXP = re.compile(
-            "".join(
-                [
-                    r"^",
-                    globals.CONFIG_DATA["NOTE_PREFIX"],
-                    r"\n(?:<!--)?",
-                    globals.ID_PREFIX,
-                    r"[\s\S]*?\n",
-                    globals.CONFIG_DATA["NOTE_SUFFIX"]
-                ]
-            ), flags=re.MULTILINE
-        )
         globals.TAG_REGEXP = re.compile(
             r"^" + globals.CONFIG_DATA["TAG_LINE"] + r"(?:\n|: )(.*)",
             flags=re.MULTILINE
         )
-        globals.INLINE_REGEXP = re.compile(
-            "".join(
-                [
-                    globals.CONFIG_DATA["INLINE_PREFIX"],
-                    r"(.*?)",
-                    globals.CONFIG_DATA["INLINE_SUFFIX"]
-                ]
-            )
-        )
-        globals.INLINE_EMPTY_REGEXP = re.compile(
-            "".join(
-                [
-                    globals.CONFIG_DATA["INLINE_PREFIX"],
-                    r"\s+(?:<!--)?" + globals.ID_PREFIX + r".*?",
-                    globals.CONFIG_DATA["INLINE_SUFFIX"]
-                ]
-            )
-        )
         globals.VAULT_PATH_REGEXP = re.compile(
             re.escape(globals.CONFIG_DATA["Vault"]) + r"/(.*)"
-        )
-        globals.FROZEN_REGEXP = re.compile(
-            globals.CONFIG_DATA["FROZEN_LINE"] + r" - (.*?):\n((?:[^\n][\n]?)+)"
         )
 
     def get_add_media(self) -> dict:

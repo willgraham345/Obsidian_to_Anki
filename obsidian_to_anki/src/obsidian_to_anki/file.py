@@ -12,11 +12,18 @@ import urllib.parse
 _regex_cache: dict[str, tuple] = {}
 
 from . import globals
-from .note import Note, InlineNote, RegexNote
+from .note import RegexNote
 from .utils import findignore, spans
 from .anki_connect import AnkiConnect
 
 _IMG_SRC_RE = re.compile(r'<img[^>]+src="([^"]+)"')
+_STEM_RE = re.compile(r'<br><b>.*?</b>\s*$', re.DOTALL)
+
+
+def _strip_stem(text: str | None) -> str | None:
+    if text is None:
+        return None
+    return _STEM_RE.sub('', text)
 
 
 def _extract_images(fields: dict) -> list:
@@ -82,26 +89,17 @@ class File:
         self.setup_frozen_fields_dict()
         self.setup_target_deck()
         self.setup_global_tags()
-        self.notes_to_add = []        # block + regex notes
-        self.id_indexes = []          # count tracker for block notes (used in update_db_anki_ids)
-        self.regex_id_indexes = []    # count tracker for regex notes (used in update_db_anki_ids)
+        self.notes_to_add = []
+        self.regex_id_indexes = []
         self.notes_to_edit = []
         self.notes_to_delete = []
-        self.inline_notes_to_add = []
-        self.uuid_for_add = []        # UUIDs parallel to block notes in notes_to_add
-        self.uuid_for_regex_add = []  # UUIDs parallel to regex notes in notes_to_add
-        self.uuid_for_inline_add = []
+        self.uuid_for_regex_add = []
 
     def setup_frozen_fields_dict(self):
         self.frozen_fields_dict = {
             note_type: dict.fromkeys(fields, "")
             for note_type, fields in globals.FIELDS_DICT.items()
         }
-        for match in globals.FROZEN_REGEXP.finditer(self.file):
-            note_type, fields = match.group(1), match.group(2)
-            virtual_note = note_type + "\n" + fields
-            parsed_fields = Note(virtual_note).fields
-            self.frozen_fields_dict[note_type] = parsed_fields
 
     def setup_target_deck(self):
         result = globals.DECK_REGEXP.search(self.file)
@@ -146,105 +144,32 @@ class File:
         self.ignore_spans += spans(globals.OBS_CODE_REGEXP, self.file)
         self.ignore_spans += spans(globals.OBS_DISPLAY_CODE_REGEXP, self.file)
 
-    def _handle_block_note(self, note_match):
-        """Parse a block note match and route to add/edit/DB."""
-        note, position = note_match.group(1), note_match.end(1)
-        parsed = Note(note).parse(
-            self.target_deck,
-            url=self.url,
-            frozen_fields_dict=self.frozen_fields_dict,
-            file_stem=self.file_stem
-        )
-        file_path = self._vault_rel_path()
-        line_no = self._line_of(note_match.start(1))
-        parsed = self._apply_change_detection(parsed, file_path, line_no)
-        if parsed.id is None:
-            if self.global_tags.strip():
-                parsed.note["tags"] += [t for t in self.global_tags.split(globals.TAG_SEP) if t]
-            note_uuid = _db_upsert_note(parsed, file_path, line_no)
-            if globals.NOTE_DB is not None and note_uuid is None:
-                logging.warning("DB write failed for block note at %s:%d — skipping", file_path, line_no)
-                return
-            self.notes_to_add.append(parsed.note)
-            self.id_indexes.append(position)
-            self.uuid_for_add.append(note_uuid)
-        elif parsed.id not in globals.EXISTING_IDS:
-            # Should not reach here after _strip_stale_ids(); safety fallback
-            logging.warning("Stale ID %d in %s was not stripped — skipping note", parsed.id, self.filename)
-        else:
-            _db_upsert_note(parsed, file_path, line_no)
-            self.notes_to_edit.append(parsed)
-
-    def _handle_inline_note(self, inline_note_match):
-        """Parse an inline note match and route to add/edit/DB."""
-        note = inline_note_match.group(1)
-        position = inline_note_match.end(1)
-        parsed = InlineNote(note).parse(
-            self.target_deck,
-            url=self.url,
-            frozen_fields_dict=self.frozen_fields_dict,
-            file_stem=self.file_stem
-        )
-        file_path = self._vault_rel_path()
-        line_no = self._line_of(inline_note_match.start(1))
-        parsed = self._apply_change_detection(parsed, file_path, line_no)
-        if parsed.id is None:
-            if self.global_tags.strip():
-                parsed.note["tags"] += [t for t in self.global_tags.split(globals.TAG_SEP) if t]
-            note_uuid = _db_upsert_note(parsed, file_path, line_no)
-            if globals.NOTE_DB is not None and note_uuid is None:
-                logging.warning("DB write failed for inline note at %s:%d — skipping", file_path, line_no)
-                return
-            self.inline_notes_to_add.append(parsed.note)
-            self.uuid_for_inline_add.append(note_uuid)
-        elif parsed.id not in globals.EXISTING_IDS:
-            # Should not reach here after _strip_stale_ids(); safety fallback
-            logging.warning("Stale ID %d in %s was not stripped — skipping note", parsed.id, self.filename)
-        else:
-            _db_upsert_note(parsed, file_path, line_no)
-            self.notes_to_edit.append(parsed)
-
     def _apply_change_detection(self, parsed, file_path: str, line_no: int):
-        """If existing DB record has different content, queue old anki_id for deletion."""
+        """If DB record has a valid anki_id and content changed, route to edit."""
         db = globals.NOTE_DB
         if db is None or parsed.id is not None:
             return parsed
         existing = db.get_note_by_location(file_path, line_no, parsed.note["modelName"])
-        if existing and existing.get("anki_id"):
-            field_names = list(parsed.note["fields"].keys())
-            new_f1 = parsed.note["fields"].get(field_names[0]) if field_names else None
-            new_f2 = parsed.note["fields"].get(field_names[1]) if len(field_names) > 1 else None
-            if existing["field_1"] != new_f1 or existing["field_2"] != new_f2:
-                # Content changed: delete old Anki card, re-add as new
-                self.notes_to_delete.append(existing["anki_id"])
+        if not existing or not existing.get("anki_id"):
+            return parsed
+        if existing["anki_id"] not in globals.EXISTING_IDS:
+            return parsed
+        field_names = list(parsed.note["fields"].keys())
+        new_f1 = _strip_stem(parsed.note["fields"].get(field_names[0]) if field_names else None)
+        new_f2 = parsed.note["fields"].get(field_names[1]) if len(field_names) > 1 else None
+        if _strip_stem(existing["field_1"]) != new_f1 or existing["field_2"] != new_f2:
+            return globals.Note_and_id(note=parsed.note, id=existing["anki_id"])
         return parsed
 
     def scan_file(self):
-        """Sort notes from file into adding vs editing.
-
-        All file types use the same unified scan:
-          1. Strip stale IDs (pre-pass)
-          2. Build ignore spans for math/code
-          3. Scan block notes atomically via NOTE_REGEXP
-          4. Scan inline notes atomically via INLINE_REGEXP
-          5. Scan each ATOMICS entry atomically via search()
-          6. Collect deletion markers
-        """
+        """Scan file for atomic (regex) notes and route to add/edit lists."""
         logging.info("Scanning file %s for notes...", self.filename)
         self._setup_scan()
         self.ignore_spans = []
         self.add_spans_to_ignore()
-        for match in findignore(globals.NOTE_REGEXP, self.file, self.ignore_spans):
-            self.ignore_spans.append(match.span())
-            self._handle_block_note(match)
-        for match in findignore(globals.INLINE_REGEXP, self.file, self.ignore_spans):
-            self.ignore_spans.append(match.span())
-            self._handle_inline_note(match)
         for note_type, regexp in globals.CONFIG_DATA.get("ATOMICS", {}).items():
             if regexp:
                 self.search(note_type, regexp)
-        for match in globals.EMPTY_REGEXP.finditer(self.file):
-            self.notes_to_delete.append(int(match.group(1)))
 
     def search(self, note_type, regexp):
         """Search the file for custom regex matches of note_type.
@@ -341,33 +266,17 @@ class File:
         db = globals.NOTE_DB
         if db is None or not hasattr(self, 'note_ids'):
             return
-        n_block = len(self.id_indexes)
-        n_regex = len(self.regex_id_indexes)
-        block_ids = self.note_ids[:n_block]
-        regex_ids = self.note_ids[n_block:n_block + n_regex]
-        inline_ids = self.note_ids[n_block + n_regex:]
-
-        for note_uuid, anki_id in zip(self.uuid_for_add, block_ids):
-            if note_uuid and anki_id is not None:
-                db.mark_synced(note_uuid, anki_id)
-        for note_uuid, anki_id in zip(self.uuid_for_regex_add, regex_ids):
-            if note_uuid and anki_id is not None:
-                db.mark_synced(note_uuid, anki_id)
-        for note_uuid, anki_id in zip(self.uuid_for_inline_add, inline_ids):
+        for note_uuid, anki_id in zip(self.uuid_for_regex_add, self.note_ids):
             if note_uuid and anki_id is not None:
                 db.mark_synced(note_uuid, anki_id)
 
     def get_add_notes(self):
-        """Get the AnkiConnect-formatted request to add notes.
-
-        Order: block notes, then regex notes (both in notes_to_add), then inline notes.
-        This order must match the slicing in write_ids() and update_db_anki_ids().
-        """
+        """Get the AnkiConnect-formatted request to add notes."""
         return AnkiConnect.request(
             "multi",
             actions=[
                 AnkiConnect.request("addNote", note=note)
-                for note in self.notes_to_add + self.inline_notes_to_add
+                for note in self.notes_to_add
             ]
         )
 
