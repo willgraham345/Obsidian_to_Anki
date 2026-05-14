@@ -817,3 +817,32 @@ class TestAtomicStateFlow:
         assert row["state"] == "not_in_anki"
         assert row["recommended_action"] == "review"
         assert len(self.file.pending_review) == 1
+
+    # --- DB-recovered anki_id (parsed.id=None but DB record has anki_id) ---
+
+    def test_db_recovered_anki_id_in_existing_ids_routes_skip(self):
+        """Note with no embedded ID but DB-recovered anki_id → skip, not add."""
+        self._insert_vault_note(anki_id=42)  # DB record has anki_id=42
+        self._insert_anki_snap(anki_id=42, f1="<p>Q</p>", f2="<p>A</p>")
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=None)  # file has no embedded ID
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'skip'
+
+    def test_db_recovered_anki_id_content_changed_routes_edit(self):
+        """DB-recovered anki_id with changed content → edit, not add."""
+        self._insert_vault_note(anki_id=42, f1="<p>NewQ</p>", f2="<p>A</p>")
+        self._insert_anki_snap(anki_id=42, f1="<p>OldQ</p>", f2="<p>A</p>")
+        globals.EXISTING_IDS = [42]
+        parsed = self._parsed(anki_id=None, f1="<p>NewQ</p>", f2="<p>A</p>")
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result == 'edit'
+
+    def test_db_recovered_anki_id_not_in_existing_ids_routes_stale(self):
+        """DB-recovered anki_id absent from EXISTING_IDS → stale, not add."""
+        self._insert_vault_note(anki_id=42)
+        globals.EXISTING_IDS = [99]  # 42 not present
+        parsed = self._parsed(anki_id=None)
+        result = self.file._atomic_state_flow(parsed, "deck/a.md", 1, "u1")
+        assert result in ('link', 'review')
+        assert self.db.get_note("u1")["state"] == "stale_id"

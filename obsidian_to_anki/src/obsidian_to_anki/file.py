@@ -45,11 +45,24 @@ def _db_upsert_note(parsed, file_path: str, line_number: int) -> str:
     images = _extract_images(parsed.note["fields"])
     existing = db.get_note_by_location(file_path, line_number, parsed.note["modelName"])
     if existing is None:
-        existing = db.get_note_by_content(file_path, parsed.note["modelName"], field_1)
+        existing = db.get_note_by_content(
+            file_path, parsed.note["modelName"], field_1, field_2, parsed.note["deckName"]
+        )
     note_uuid = existing["id"] if existing else str(uuid_module.uuid4())
+    existing_anki_id = existing["anki_id"] if existing else None
+    # Recover anki_id from the Anki snapshot when the DB record has none.
+    # Covers both genuinely new records and cascade-corrupted false positives
+    # whose existing DB entry was created without an anki_id.
+    recovered_anki_id: int | None = None
+    if existing_anki_id is None:
+        recovered_anki_id = db.find_anki_note_by_content(
+            parsed.note["modelName"], field_1, field_2
+        )
     db.upsert_note(
         uuid=note_uuid,
-        anki_id=parsed.id if parsed.id is not None else (existing["anki_id"] if existing else None),
+        anki_id=parsed.id if parsed.id is not None else (
+            existing_anki_id if existing_anki_id is not None else recovered_anki_id
+        ),
         file_path=file_path,
         line_number=line_number,
         note_type=parsed.note["modelName"],
@@ -186,8 +199,16 @@ class File:
         f1 = _strip_stem(parsed.note["fields"].get(field_names[0]) if field_names else None)
         f2 = parsed.note["fields"].get(field_names[1]) if len(field_names) > 1 else None
 
-        if parsed.id is not None:
-            if parsed.id not in globals.EXISTING_IDS:
+        # Prefer the file-embedded Anki ID; fall back to the DB record's anki_id.
+        # This ensures notes recovered via snapshot matching (_recover_anki_ids /
+        # find_anki_note_by_content) are not re-routed as false-positive adds.
+        effective_id = parsed.id
+        if effective_id is None:
+            db_note = db.get_note(note_uuid)
+            effective_id = db_note["anki_id"] if db_note else None
+
+        if effective_id is not None:
+            if effective_id not in globals.EXISTING_IDS:
                 candidates = db.similarity_search(f1, f2, parsed.note["modelName"])
                 state = "stale_id"
                 action = "link" if len(candidates) == 1 else "review"
@@ -199,7 +220,7 @@ class File:
                 return action
 
             snap = db._conn.execute(
-                "SELECT * FROM anki_notes WHERE anki_id = ?", (parsed.id,)
+                "SELECT * FROM anki_notes WHERE anki_id = ?", (effective_id,)
             ).fetchone()
             if snap is None:
                 return 'edit'
