@@ -1,5 +1,5 @@
 [project]
-name = "obsidian-to-anki"
+name = "atomics"
 version = "0.1.0"
 description = "A CLI tool for importing regex statements (specifically tasks) into Anki from Obsidian."
 authors = [
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-obs2anki = "obsidian_to_anki.__main__:main_entry_point"
+obs2anki = "atomics.__main__:main_entry_point"
 
 [build-system]
 requires = ["hatchling"]

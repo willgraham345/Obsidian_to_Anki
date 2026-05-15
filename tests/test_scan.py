@@ -8,7 +8,7 @@ import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from src.obsidian_to_anki.db import NoteDB
+from src.atomics.db import NoteDB
 
 # Import the function under test directly from scan.py (not a package module)
 _SCAN_PATH = os.path.join(os.path.dirname(__file__), "..", "scan.py")
@@ -184,7 +184,7 @@ class TestReadFrontmatterSync:
 import hashlib
 import re
 
-# globals module as seen by scan.py (may differ from src.obsidian_to_anki.globals)
+# globals module as seen by scan.py (may differ from src.atomics.globals)
 _scan_globals = _scan_mod.globals
 
 

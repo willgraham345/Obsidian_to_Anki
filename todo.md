@@ -1,6 +1,6 @@
 # Todo
 
-- [ ] Rename uv tool to "atomics" rather than "obsidian_to_anki"
+- [x] Rename uv tool to "atomics" rather than "obsidian_to_anki"
 - [ ] Start on new building functionality for new "targets"
   - [ ] [Navi](https://github.com/denisidoro/navi) (higher priority)
   - [ ] [Repeater](https://github.com/shaankhosla/repeater) (higher priority)

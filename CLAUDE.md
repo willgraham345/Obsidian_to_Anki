@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Python CLI tool (`obs2anki`) that syncs flashcards written in Obsidian markdown to Anki via the AnkiConnect API. This is a rewrite of the original Obsidian plugin (`original-plugin/`) — the Python package under `obsidian_to_anki/` is the active development target.
+A Python CLI tool (`obs2anki`) that syncs flashcards written in Obsidian markdown to Anki via the AnkiConnect API. This is a rewrite of the original Obsidian plugin (`original-plugin/`) — the Python package `atomics` under `src/atomics/` is the active development target.
 
-**Repo layout:** The root `pyproject.toml` and `uv.lock` are stubs — ignore them. All real code lives under `obsidian_to_anki/`.
+**Repo layout:** The root `pyproject.toml` defines the `atomics` package. Source lives at `src/atomics/`, tests at `tests/`, and the three main entry scripts (`scan.py`, `show.py`, `write.py`) live at the repo root.
 
 ## Commands
 
-All commands run from `obsidian_to_anki/`:
+All commands run from the repo root:
 
 ```bash
 uv sync                                           # install deps
@@ -26,7 +26,7 @@ CLI flags: `-f/--file`, `-d/--dir`, `-r/--regex`, `-R/--recurse`, `-u/--update`,
 
 ## Architecture
 
-Source: `obsidian_to_anki/src/obsidian_to_anki/`
+Source: `src/atomics/`
 
 ### Data Flow
 
@@ -125,4 +125,4 @@ The Python rewrite is in progress. FIXME comments in `app.py` and `config.py` ma
 
 ## Tests
 
-10 test files under `obsidian_to_anki/tests/` covering all modules. Tests mock AnkiConnect and file I/O. Global state is reset in fixtures for isolation.
+10 test files under `tests/` covering all modules. Tests mock AnkiConnect and file I/O. Global state is reset in fixtures for isolation.

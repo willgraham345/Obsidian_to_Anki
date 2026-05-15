@@ -19,9 +19,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from obsidian_to_anki import globals        # noqa: E402
-from obsidian_to_anki.config import Config  # noqa: E402
-from obsidian_to_anki.db import NoteDB      # noqa: E402
+from atomics import globals        # noqa: E402
+from atomics.config import Config  # noqa: E402
+from atomics.db import NoteDB      # noqa: E402
 
 
 def _plain(text: str | None, max_len: int = 80) -> str:

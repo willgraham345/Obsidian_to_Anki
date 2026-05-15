@@ -7,7 +7,7 @@ import time
 import socket
 import subprocess
 
-from src.obsidian_to_anki.utils import (
+from src.atomics.utils import (
     has_clozes,
     note_has_clozes,
     write_safe,
@@ -19,7 +19,7 @@ from src.obsidian_to_anki.utils import (
     wait_for_port,
     load_anki
 )
-from src.obsidian_to_anki import globals
+from src.atomics import globals
 
 class TestUtils:
 
@@ -119,26 +119,26 @@ class TestUtils:
         # Only the second 'word' should be returned
         assert results == ["word"]
 
-    @patch('src.obsidian_to_anki.utils.time.perf_counter', side_effect=[0, 1, 2, 5.1])
-    @patch('src.obsidian_to_anki.utils.socket.create_connection')
-    @patch('src.obsidian_to_anki.utils.time.sleep')
+    @patch('src.atomics.utils.time.perf_counter', side_effect=[0, 1, 2, 5.1])
+    @patch('src.atomics.utils.socket.create_connection')
+    @patch('src.atomics.utils.time.sleep')
     def test_wait_for_port_success(self, mock_sleep, mock_create_connection, mock_perf_counter):
         mock_create_connection.side_effect = [socket.error, MagicMock()]
         wait_for_port(8080, timeout=5)
         mock_create_connection.assert_called_with(('localhost', 8080), timeout=5)
         assert mock_sleep.call_count == 1
 
-    @patch('src.obsidian_to_anki.utils.time.perf_counter', side_effect=[0, 1, 2, 3, 4, 5.1])
-    @patch('src.obsidian_to_anki.utils.socket.create_connection', side_effect=socket.error)
-    @patch('src.obsidian_to_anki.utils.time.sleep')
+    @patch('src.atomics.utils.time.perf_counter', side_effect=[0, 1, 2, 3, 4, 5.1])
+    @patch('src.atomics.utils.socket.create_connection', side_effect=socket.error)
+    @patch('src.atomics.utils.time.sleep')
     def test_wait_for_port_timeout(self, mock_sleep, mock_create_connection, mock_perf_counter):
         with pytest.raises(TimeoutError):
             wait_for_port(8080, timeout=5)
         assert mock_create_connection.call_count > 1
         assert mock_sleep.call_count > 1
 
-    @patch('src.obsidian_to_anki.utils.subprocess.Popen')
-    @patch('src.obsidian_to_anki.utils.wait_for_port')
+    @patch('src.atomics.utils.subprocess.Popen')
+    @patch('src.atomics.utils.wait_for_port')
     def test_load_anki_success(self, mock_wait_for_port, mock_popen):
         mock_config = MagicMock()
         mock_config.load_config.return_value = None
@@ -152,8 +152,8 @@ class TestUtils:
         mock_wait_for_port.assert_called_once_with(8765)
         assert result is True
 
-    @patch('src.obsidian_to_anki.utils.subprocess.Popen')
-    @patch('src.obsidian_to_anki.utils.wait_for_port', side_effect=TimeoutError)
+    @patch('src.atomics.utils.subprocess.Popen')
+    @patch('src.atomics.utils.wait_for_port', side_effect=TimeoutError)
     def test_load_anki_timeout(self, mock_wait_for_port, mock_popen):
         mock_config = MagicMock()
         mock_config.load_config.return_value = None
@@ -165,8 +165,8 @@ class TestUtils:
         mock_wait_for_port.assert_called_once()
         assert result is False
 
-    @patch('src.obsidian_to_anki.utils.subprocess.Popen')
-    @patch('src.obsidian_to_anki.utils.wait_for_port')
+    @patch('src.atomics.utils.subprocess.Popen')
+    @patch('src.atomics.utils.wait_for_port')
     def test_load_anki_no_path_or_profile(self, mock_wait_for_port, mock_popen):
         mock_config = MagicMock()
         mock_config.load_config.return_value = None
@@ -179,8 +179,8 @@ class TestUtils:
         mock_wait_for_port.assert_not_called()
         assert result is False
 
-    @patch('src.obsidian_to_anki.utils.subprocess.Popen')
-    @patch('src.obsidian_to_anki.utils.wait_for_port')
+    @patch('src.atomics.utils.subprocess.Popen')
+    @patch('src.atomics.utils.wait_for_port')
     def test_load_anki_config_error(self, mock_wait_for_port, mock_popen):
         mock_config = MagicMock()
         mock_config.load_config.side_effect = Exception("Config error")

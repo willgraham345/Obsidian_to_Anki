@@ -3,7 +3,7 @@
 import json
 import pytest
 
-from src.obsidian_to_anki.db import NoteDB
+from src.atomics.db import NoteDB
 
 
 @pytest.fixture

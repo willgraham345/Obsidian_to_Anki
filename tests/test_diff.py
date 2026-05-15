@@ -7,7 +7,7 @@ import importlib.util as _ilu
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from src.obsidian_to_anki.db import NoteDB
+from src.atomics.db import NoteDB
 
 _SCAN_PATH = os.path.join(os.path.dirname(__file__), "..", "scan.py")
 _spec = _ilu.spec_from_file_location("scan", _SCAN_PATH)

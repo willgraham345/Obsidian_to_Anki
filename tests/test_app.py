@@ -4,11 +4,11 @@ import os
 import argparse
 import re
 
-from src.obsidian_to_anki.app import App
-from src.obsidian_to_anki.config import Config
-from src.obsidian_to_anki.data import Data
-from src.obsidian_to_anki.anki_connect import AnkiConnect
-from src.obsidian_to_anki import globals
+from src.atomics.app import App
+from src.atomics.config import Config
+from src.atomics.data import Data
+from src.atomics.anki_connect import AnkiConnect
+from src.atomics import globals
 
 # Shared parse_args mock — returns a namespace with no active flags
 _NO_ARGS = MagicMock(update=False, mediaupdate=False, config=False, path=False, recurse=False, regex=False)
@@ -37,15 +37,15 @@ class TestApp:
         globals.EXISTING_IDS = []
         globals.ID_PREFIX = "ID: "
 
-    @patch('src.obsidian_to_anki.config.Config.load_config')
-    @patch('src.obsidian_to_anki.config.Config.update_config')
-    @patch('src.obsidian_to_anki.data.Data.load_data_file')
-    @patch('src.obsidian_to_anki.data.Data.create_data_file')
-    @patch('src.obsidian_to_anki.app.App.get_fields')
-    @patch('src.obsidian_to_anki.app.App.get_ids')
-    @patch('src.obsidian_to_anki.app.App.gen_regexp')
+    @patch('src.atomics.config.Config.load_config')
+    @patch('src.atomics.config.Config.update_config')
+    @patch('src.atomics.data.Data.load_data_file')
+    @patch('src.atomics.data.Data.create_data_file')
+    @patch('src.atomics.app.App.get_fields')
+    @patch('src.atomics.app.App.get_ids')
+    @patch('src.atomics.app.App.gen_regexp')
     @patch('argparse.ArgumentParser.parse_args', return_value=_NO_ARGS)
-    @patch('src.obsidian_to_anki.app.argparse.ArgumentParser')
+    @patch('src.atomics.app.argparse.ArgumentParser')
     def test_app_init_cli_no_args(self, MockArgumentParser, mock_parse_args, mock_gen_regexp, mock_get_ids, mock_get_fields, mock_create_data_file, mock_load_data_file, mock_update_config, mock_load_config):
         mock_parser = MockArgumentParser.return_value
         mock_parser.parse_args.return_value = _NO_ARGS
@@ -58,12 +58,12 @@ class TestApp:
         mock_gen_regexp.assert_called_once()
         mock_parser.print_help.assert_called_once()
 
-    @patch('src.obsidian_to_anki.config.Config.load_config')
-    @patch('src.obsidian_to_anki.data.Data.load_data_file')
-    @patch('src.obsidian_to_anki.app.App.get_fields')
-    @patch('src.obsidian_to_anki.app.App.get_ids')
+    @patch('src.atomics.config.Config.load_config')
+    @patch('src.atomics.data.Data.load_data_file')
+    @patch('src.atomics.app.App.get_fields')
+    @patch('src.atomics.app.App.get_ids')
     @patch('argparse.ArgumentParser.parse_args', return_value=_NO_ARGS)
-    @patch('src.obsidian_to_anki.app.argparse.ArgumentParser')
+    @patch('src.atomics.app.argparse.ArgumentParser')
     def test_setup_cli_parser(self, MockArgumentParser, mock_parse_args, mock_get_ids, mock_get_fields, mock_load_data_file, mock_load_config):
         mock_parser_instance = MockArgumentParser.return_value
         mock_parser_instance.parse_args.return_value = _NO_ARGS
@@ -72,10 +72,10 @@ class TestApp:
         MockArgumentParser.assert_called_with(description="Add cards to Anki from a markdown or text file.")
         mock_parser_instance.add_argument.assert_any_call("path", default=False, nargs="?", help="Path to the file or directory you want to scan.")
 
-    @patch('src.obsidian_to_anki.config.Config.load_config')
-    @patch('src.obsidian_to_anki.data.Data.load_data_file')
-    @patch('src.obsidian_to_anki.app.App.get_fields')
-    @patch('src.obsidian_to_anki.app.App.get_ids')
+    @patch('src.atomics.config.Config.load_config')
+    @patch('src.atomics.data.Data.load_data_file')
+    @patch('src.atomics.app.App.get_fields')
+    @patch('src.atomics.app.App.get_ids')
     @patch('argparse.ArgumentParser.parse_args', return_value=_NO_ARGS)
     def test_gen_regexp(self, mock_parse_args, mock_get_ids, mock_get_fields, mock_load_data_file, mock_load_config):
         app = App(Config())
@@ -85,12 +85,12 @@ class TestApp:
         assert globals.TAG_REGEXP is not None
         assert globals.VAULT_PATH_REGEXP is not None
 
-    @patch('src.obsidian_to_anki.config.Config.load_config')
-    @patch('src.obsidian_to_anki.data.Data.load_data_file')
-    @patch('src.obsidian_to_anki.app.App.get_fields')
-    @patch('src.obsidian_to_anki.app.App.get_ids')
+    @patch('src.atomics.config.Config.load_config')
+    @patch('src.atomics.data.Data.load_data_file')
+    @patch('src.atomics.app.App.get_fields')
+    @patch('src.atomics.app.App.get_ids')
     @patch('argparse.ArgumentParser.parse_args', return_value=_NO_ARGS)
-    @patch('src.obsidian_to_anki.anki_connect.AnkiConnect.request')
+    @patch('src.atomics.anki_connect.AnkiConnect.request')
     def test_get_add_media(self, mock_anki_request, mock_parse_args, mock_get_ids, mock_get_fields, mock_load_data_file, mock_load_config):
         globals.MEDIA = {"image1.png": "base64data1", "image2.jpg": "base64data2"}
         app = App(Config())
@@ -100,13 +100,13 @@ class TestApp:
         mock_anki_request.assert_any_call("storeMediaFile", filename="image2.jpg", data="base64data2")
         assert result == mock_anki_request.return_value
 
-    @patch('src.obsidian_to_anki.config.Config.load_config')
-    @patch('src.obsidian_to_anki.data.Data.load_data_file')
-    @patch('src.obsidian_to_anki.app.App.get_ids')
+    @patch('src.atomics.config.Config.load_config')
+    @patch('src.atomics.data.Data.load_data_file')
+    @patch('src.atomics.app.App.get_ids')
     @patch('argparse.ArgumentParser.parse_args', return_value=_NO_ARGS)
-    @patch('src.obsidian_to_anki.anki_connect.AnkiConnect.invoke')
-    @patch('src.obsidian_to_anki.anki_connect.AnkiConnect.parse')
-    @patch('src.obsidian_to_anki.anki_connect.AnkiConnect.request')
+    @patch('src.atomics.anki_connect.AnkiConnect.invoke')
+    @patch('src.atomics.anki_connect.AnkiConnect.parse')
+    @patch('src.atomics.anki_connect.AnkiConnect.request')
     def test_get_fields(self, mock_anki_request, mock_anki_parse, mock_anki_invoke, mock_parse_args, mock_get_ids, mock_load_data_file, mock_load_config):
         # Provide enough side_effect items for init's get_fields() call AND the explicit call
         mock_anki_invoke.side_effect = [
@@ -126,11 +126,11 @@ class TestApp:
         mock_anki_request.assert_any_call("modelFieldNames", modelName="NoteType2")
         assert globals.FIELDS_DICT == {"NoteType1": ["Field1", "Field2"], "NoteType2": ["FieldA", "FieldB"]}
 
-    @patch('src.obsidian_to_anki.config.Config.load_config')
-    @patch('src.obsidian_to_anki.data.Data.load_data_file')
-    @patch('src.obsidian_to_anki.app.App.get_fields')
+    @patch('src.atomics.config.Config.load_config')
+    @patch('src.atomics.data.Data.load_data_file')
+    @patch('src.atomics.app.App.get_fields')
     @patch('argparse.ArgumentParser.parse_args', return_value=_NO_ARGS)
-    @patch('src.obsidian_to_anki.anki_connect.AnkiConnect.invoke')
+    @patch('src.atomics.anki_connect.AnkiConnect.invoke')
     def test_get_ids(self, mock_anki_invoke, mock_parse_args, mock_get_fields, mock_load_data_file, mock_load_config):
         mock_anki_invoke.return_value = ["id1", "id2"]
 

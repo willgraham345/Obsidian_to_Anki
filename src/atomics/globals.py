@@ -1,4 +1,4 @@
-"""Global variables and shared objects for the obsidian_to_anki package."""
+"""Global variables and shared objects for the atomics package."""
 
 import collections
 import markdown

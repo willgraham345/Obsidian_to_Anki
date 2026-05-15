@@ -1,4 +1,4 @@
-"""Helper functions for obsidian_to_anki."""
+"""Helper functions for atomics."""
 
 import os
 import base64

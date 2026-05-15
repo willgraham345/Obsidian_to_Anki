@@ -4,8 +4,8 @@ import configparser
 import os
 import re
 
-from src.obsidian_to_anki.config import Config
-from src.obsidian_to_anki import globals
+from src.atomics.config import Config
+from src.atomics import globals
 
 class TestConfig:
 
@@ -50,9 +50,9 @@ class TestConfig:
         assert config_parser["Defaults"]["Anki Path"] == ""
         assert config_parser["Defaults"]["Anki Profile"] == ""
 
-    @patch('src.obsidian_to_anki.config.os.path.exists', return_value=True)
-    @patch('src.obsidian_to_anki.config.configparser.ConfigParser')
-    @patch('src.obsidian_to_anki.config.AnkiConnect.invoke', return_value=["NoteType1", "NoteType2"])
+    @patch('src.atomics.config.os.path.exists', return_value=True)
+    @patch('src.atomics.config.configparser.ConfigParser')
+    @patch('src.atomics.config.AnkiConnect.invoke', return_value=["NoteType1", "NoteType2"])
     @patch('builtins.open', new_callable=mock_open)
     def test_update_config_existing_file(self, mock_file_open, mock_anki_invoke, MockConfigParser, mock_exists):
         mock_config_instance = MockConfigParser.return_value
@@ -71,9 +71,9 @@ class TestConfig:
         mock_file_open.assert_called_once_with(test_config.CONFIG_PATH, "w", encoding='utf_8')
         mock_config_instance.write.assert_called_once_with(mock_file_open())
 
-    @patch('src.obsidian_to_anki.config.os.path.exists', return_value=False)
-    @patch('src.obsidian_to_anki.config.configparser.ConfigParser')
-    @patch('src.obsidian_to_anki.config.AnkiConnect.invoke', return_value=["NoteType1"])
+    @patch('src.atomics.config.os.path.exists', return_value=False)
+    @patch('src.atomics.config.configparser.ConfigParser')
+    @patch('src.atomics.config.AnkiConnect.invoke', return_value=["NoteType1"])
     @patch('builtins.open', new_callable=mock_open)
     def test_update_config_new_file(self, mock_file_open, mock_anki_invoke, MockConfigParser, mock_exists):
         mock_config_instance = MockConfigParser.return_value
@@ -143,10 +143,10 @@ class TestConfig:
         assert globals.CONFIG_DATA["Vault name"] == "MyVault"
         assert globals.CONFIG_DATA["Add file link"] is True
 
-    @patch('src.obsidian_to_anki.config.configparser.ConfigParser')
-    @patch('src.obsidian_to_anki.config.Config.load_syntax')
-    @patch('src.obsidian_to_anki.config.Config.load_defaults')
-    @patch('src.obsidian_to_anki.config.Config.load_folder_decks')
+    @patch('src.atomics.config.configparser.ConfigParser')
+    @patch('src.atomics.config.Config.load_syntax')
+    @patch('src.atomics.config.Config.load_defaults')
+    @patch('src.atomics.config.Config.load_folder_decks')
     def test_load_config(self, mock_load_folder_decks, mock_load_defaults, mock_load_syntax, MockConfigParser):
         mock_config_instance = MockConfigParser.return_value
         mock_config_instance.read.return_value = None

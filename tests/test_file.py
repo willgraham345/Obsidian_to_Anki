@@ -4,12 +4,12 @@ import os
 import re
 import hashlib
 
-from src.obsidian_to_anki.file import File, _extract_images, _db_upsert_note
-from src.obsidian_to_anki.note import RegexNote
-from src.obsidian_to_anki.anki_connect import AnkiConnect
-from src.obsidian_to_anki import globals
-from src.obsidian_to_anki.utils import findignore, spans
-from src.obsidian_to_anki.db import NoteDB
+from src.atomics.file import File, _extract_images, _db_upsert_note
+from src.atomics.note import RegexNote
+from src.atomics.anki_connect import AnkiConnect
+from src.atomics import globals
+from src.atomics.utils import findignore, spans
+from src.atomics.db import NoteDB
 
 
 class TestFile:
@@ -39,7 +39,7 @@ class TestFile:
         with patch('builtins.open', mock_open(read_data="")):
             yield
 
-    @patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/path/to/file.md")
+    @patch('src.atomics.file.os.path.abspath', return_value="/mock/path/to/file.md")
     def test_file_init_no_vault(self, mock_abspath):
         file_instance = File("file.md")
         assert file_instance.filename == "file.md"
@@ -47,7 +47,7 @@ class TestFile:
         assert file_instance.url == ""
         assert file_instance.file == ""
 
-    @patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/path/to/VaultName/sub/file.md")
+    @patch('src.atomics.file.os.path.abspath', return_value="/mock/path/to/VaultName/sub/file.md")
     def test_file_init_with_vault(self, mock_abspath):
         globals.CONFIG_DATA["Vault"] = "VaultName"
         globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
@@ -79,7 +79,7 @@ class TestFile:
         file_instance.setup_target_deck()
         assert file_instance.target_deck == globals.NOTE_DICT_TEMPLATE["deckName"]
 
-    @patch('src.obsidian_to_anki.file.os.path.abspath',
+    @patch('src.atomics.file.os.path.abspath',
            return_value="/vault/Docs/Programming_and_OS/Cpp/templates.md")
     def test_setup_target_deck_folder_first_match(self, _):
         globals.CONFIG_DATA["Vault"] = "vault"
@@ -93,7 +93,7 @@ class TestFile:
         file_instance.setup_target_deck()
         assert file_instance.target_deck == "Cpp"
 
-    @patch('src.obsidian_to_anki.file.os.path.abspath',
+    @patch('src.atomics.file.os.path.abspath',
            return_value="/vault/Docs/Programming_and_OS/Python/foo.md")
     def test_setup_target_deck_folder_second_match(self, _):
         globals.CONFIG_DATA["Vault"] = "vault"
@@ -107,7 +107,7 @@ class TestFile:
         file_instance.setup_target_deck()
         assert file_instance.target_deck == "Programming"
 
-    @patch('src.obsidian_to_anki.file.os.path.abspath',
+    @patch('src.atomics.file.os.path.abspath',
            return_value="/vault/Docs/Programming_and_OS/Cpp/templates.md")
     def test_setup_target_deck_priority_file_marker_wins(self, _):
         globals.CONFIG_DATA["Vault"] = "vault"
@@ -138,7 +138,7 @@ class TestFile:
         file_instance.setup_target_deck()
         assert file_instance.target_deck == globals.NOTE_DICT_TEMPLATE["deckName"]
 
-    @patch('src.obsidian_to_anki.file.os.path.abspath',
+    @patch('src.atomics.file.os.path.abspath',
            return_value="/vault/Biology/genetics.md")
     def test_setup_target_deck_no_matching_folder(self, _):
         globals.CONFIG_DATA["Vault"] = "vault"
@@ -161,7 +161,7 @@ class TestFile:
         file_instance.setup_global_tags()
         assert file_instance.global_tags == ""
 
-    @patch('src.obsidian_to_anki.file.spans')
+    @patch('src.atomics.file.spans')
     def test_add_spans_to_ignore(self, mock_spans):
         file_instance = File("dummy.md")
         file_instance.file = "some content"
@@ -179,11 +179,11 @@ class TestFile:
             call(globals.OBS_DISPLAY_CODE_REGEXP, file_instance.file),
         ])
 
-    @patch('src.obsidian_to_anki.file.File.setup_frozen_fields_dict')
-    @patch('src.obsidian_to_anki.file.File.setup_target_deck')
-    @patch('src.obsidian_to_anki.file.File.setup_global_tags')
-    @patch('src.obsidian_to_anki.file.File.add_spans_to_ignore')
-    @patch('src.obsidian_to_anki.file.File.search')
+    @patch('src.atomics.file.File.setup_frozen_fields_dict')
+    @patch('src.atomics.file.File.setup_target_deck')
+    @patch('src.atomics.file.File.setup_global_tags')
+    @patch('src.atomics.file.File.add_spans_to_ignore')
+    @patch('src.atomics.file.File.search')
     def test_scan_file_calls_search_for_atomics(self, mock_search, mock_add_spans, *_):
         globals.CONFIG_DATA["ATOMICS"] = {"MyNoteType": "MY_REGEX"}
         file_instance = File("dummy.md")
@@ -195,8 +195,8 @@ class TestFile:
         mock_search.assert_called_once_with("MyNoteType", "MY_REGEX")
         assert file_instance.notes_to_delete == []
 
-    @patch('src.obsidian_to_anki.file.findignore')
-    @patch('src.obsidian_to_anki.file.RegexNote')
+    @patch('src.atomics.file.findignore')
+    @patch('src.atomics.file.RegexNote')
     def test_search(self, MockRegexNote, mock_findignore):
         file_instance = File("dummy.md")
         file_instance.file = "test content"
@@ -254,7 +254,7 @@ class TestFile:
         assert file_instance.regex_id_indexes[1] == 40
         assert len(file_instance.ignore_spans) == 4
 
-    @patch('src.obsidian_to_anki.file.AnkiConnect.request')
+    @patch('src.atomics.file.AnkiConnect.request')
     def test_get_add_notes(self, mock_anki_request):
         file_instance = File("dummy.md")
         file_instance.notes_to_add = [{"note": "add1"}, {"note": "add2"}]
@@ -266,7 +266,7 @@ class TestFile:
         ], any_order=True)
         assert result == mock_anki_request.return_value
 
-    @patch('src.obsidian_to_anki.file.AnkiConnect.request')
+    @patch('src.atomics.file.AnkiConnect.request')
     def test_get_delete_notes(self, mock_anki_request):
         file_instance = File("dummy.md")
         file_instance.notes_to_delete = [1, 2, 3]
@@ -274,7 +274,7 @@ class TestFile:
         mock_anki_request.assert_called_once_with("deleteNotes", notes=[1, 2, 3])
         assert result == mock_anki_request.return_value
 
-    @patch('src.obsidian_to_anki.file.AnkiConnect.request')
+    @patch('src.atomics.file.AnkiConnect.request')
     def test_get_update_fields(self, mock_anki_request):
         file_instance = File("dummy.md")
         mock_parsed1 = MagicMock(id=1, note={"fields": {"F1": "V1"}, "audio": []})
@@ -288,7 +288,7 @@ class TestFile:
         ], any_order=True)
         assert result == mock_anki_request.return_value
 
-    @patch('src.obsidian_to_anki.file.AnkiConnect.request')
+    @patch('src.atomics.file.AnkiConnect.request')
     def test_get_note_info(self, mock_anki_request):
         file_instance = File("dummy.md")
         mock_parsed1 = MagicMock(id=1)
@@ -307,7 +307,7 @@ class TestFile:
         file_instance.get_cards()
         assert file_instance.cards == ["card1", "card2", "card3"]
 
-    @patch('src.obsidian_to_anki.file.AnkiConnect.request')
+    @patch('src.atomics.file.AnkiConnect.request')
     def test_get_change_decks(self, mock_anki_request):
         file_instance = File("dummy.md")
         file_instance.cards = ["cardA", "cardB"]
@@ -316,7 +316,7 @@ class TestFile:
         mock_anki_request.assert_called_once_with("changeDeck", cards=["cardA", "cardB"], deck="MyDeck")
         assert result == mock_anki_request.return_value
 
-    @patch('src.obsidian_to_anki.file.AnkiConnect.request')
+    @patch('src.atomics.file.AnkiConnect.request')
     def test_get_clear_tags(self, mock_anki_request):
         file_instance = File("dummy.md")
         mock_parsed1 = MagicMock(id=1)
@@ -327,7 +327,7 @@ class TestFile:
         mock_anki_request.assert_called_once_with("removeTags", notes=[1, 2], tags="existing_tag1 existing_tag2")
         assert result == mock_anki_request.return_value
 
-    @patch('src.obsidian_to_anki.file.AnkiConnect.request')
+    @patch('src.atomics.file.AnkiConnect.request')
     def test_get_add_tags(self, mock_anki_request):
         file_instance = File("dummy.md")
         mock_parsed1 = MagicMock(id=1, note={"tags": ["new_tag1"]})
@@ -433,7 +433,7 @@ class TestApplyChangeDetection:
         globals.NOTE_DB = None
 
     def _file(self):
-        with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/file.md"):
+        with patch('src.atomics.file.os.path.abspath', return_value="/mock/file.md"):
             f = File("file.md")
         f.notes_to_delete = []
         return f
@@ -550,7 +550,7 @@ class TestUpdateDbAnkiIds:
         db.upsert_note(uuid="u1", anki_id=None, file_path="a.md", line_number=1,
                        note_type="Basic", field_1="q", field_2="a",
                        image_paths=[], tags=[], deck_name="Default")
-        with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
+        with patch('src.atomics.file.os.path.abspath', return_value="/mock/a.md"):
             f = File("a.md")
         f.regex_id_indexes = [10]
         f.uuid_for_regex_add = ["u1"]
@@ -561,7 +561,7 @@ class TestUpdateDbAnkiIds:
 
     def test_no_db_is_noop(self):
         globals.NOTE_DB = None
-        with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
+        with patch('src.atomics.file.os.path.abspath', return_value="/mock/a.md"):
             f = File("a.md")
         f.regex_id_indexes = []
         f.uuid_for_regex_add = []
@@ -569,7 +569,7 @@ class TestUpdateDbAnkiIds:
         f.update_db_anki_ids()  # should not raise
 
     def test_no_note_ids_attr_is_noop(self):
-        with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
+        with patch('src.atomics.file.os.path.abspath', return_value="/mock/a.md"):
             f = File("a.md")
         f.update_db_anki_ids()  # should not raise
 
@@ -600,7 +600,7 @@ class TestAtomicStateFlow:
         db = NoteDB(":memory:")
         globals.NOTE_DB = db
         with patch('builtins.open', mock_open(read_data="")):
-            with patch('src.obsidian_to_anki.file.os.path.abspath', return_value="/mock/a.md"):
+            with patch('src.atomics.file.os.path.abspath', return_value="/mock/a.md"):
                 self.file = File("a.md")
         self.file.pending_review = []
         self.db = db

@@ -1,4 +1,4 @@
-"""Main entry point for the obsidian_to_anki package."""
+"""Main entry point for the atomics package."""
 
 from . import main, wait_for_port, load_anki, ANKI_PORT
 from .config import Config

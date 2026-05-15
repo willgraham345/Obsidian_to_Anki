@@ -6,8 +6,8 @@ import urllib.parse
 import html
 import markdown
 
-from src.obsidian_to_anki.format_converter import FormatConverter
-from src.obsidian_to_anki import globals
+from src.atomics.format_converter import FormatConverter
+from src.atomics import globals
 
 class TestFormatConverter:
 
@@ -121,9 +121,9 @@ class TestFormatConverter:
         assert FormatConverter.is_url("http://example.com") is True
         assert FormatConverter.is_url("file.png") is False
 
-    @patch('src.obsidian_to_anki.format_converter.file_encode', return_value="base64data")
-    @patch('src.obsidian_to_anki.format_converter.os.path.basename', return_value="image.png")
-    @patch('src.obsidian_to_anki.format_converter.urllib.parse.unquote', return_value="image.png")
+    @patch('src.atomics.format_converter.file_encode', return_value="base64data")
+    @patch('src.atomics.format_converter.os.path.basename', return_value="image.png")
+    @patch('src.atomics.format_converter.urllib.parse.unquote', return_value="image.png")
     def test_get_images(self, mock_unquote, mock_basename, mock_file_encode):
         html_text = '<img alt="" src="image.png">\n<img alt="" src="https://example.com/remote.jpg">\n<img alt="" src="existing.gif">\n'
         globals.ADDED_MEDIA = ["existing.gif"]
@@ -131,8 +131,8 @@ class TestFormatConverter:
         assert globals.MEDIA == {"image.png": "base64data"}
         mock_file_encode.assert_called_once_with("image.png")
 
-    @patch('src.obsidian_to_anki.format_converter.file_encode', return_value="base64audio")
-    @patch('src.obsidian_to_anki.format_converter.os.path.basename', return_value="audio.mp3")
+    @patch('src.atomics.format_converter.file_encode', return_value="base64audio")
+    @patch('src.atomics.format_converter.os.path.basename', return_value="audio.mp3")
     def test_get_audio(self, mock_basename, mock_file_encode):
         html_text = '[sound:audio.mp3][sound:existing.wav]'
         globals.ADDED_MEDIA = ["existing.wav"]
@@ -152,7 +152,7 @@ class TestFormatConverter:
 
     def test_fix_image_src(self):
         html_text = '<img alt="" src="path/to/image.png">\n<img alt="" src="https://example.com/remote.jpg">\n'
-        with patch('src.obsidian_to_anki.format_converter.FormatConverter.path_to_filename') as mock_path_to_filename:
+        with patch('src.atomics.format_converter.FormatConverter.path_to_filename') as mock_path_to_filename:
             mock_path_to_filename.side_effect = [
                 '<img alt="" src="image.png"', '<img alt="" src="https://example.com/remote.jpg"'
             ]
@@ -161,20 +161,20 @@ class TestFormatConverter:
 
     def test_fix_audio_src(self):
         html_text = '[sound:path/to/audio.mp3][sound:remote.wav]'
-        with patch('src.obsidian_to_anki.format_converter.FormatConverter.path_to_filename') as mock_path_to_filename:
+        with patch('src.atomics.format_converter.FormatConverter.path_to_filename') as mock_path_to_filename:
             mock_path_to_filename.side_effect = [
                 '[sound:audio.mp3]', '[sound:remote.wav]'
             ]
             result = FormatConverter.fix_audio_src(html_text)
             assert result == '[sound:audio.mp3][sound:remote.wav]'
 
-    @patch('src.obsidian_to_anki.format_converter.FormatConverter.obsidian_to_anki_math', side_effect=lambda x: x.replace("$a$", "\\(a\\)"))
-    @patch('src.obsidian_to_anki.format_converter.FormatConverter.curly_to_cloze', side_effect=lambda x: x.replace("{cloze}", "{{c1::cloze}}"))
-    @patch('src.obsidian_to_anki.format_converter.FormatConverter.markdown_parse', side_effect=lambda x: x.replace("# Heading", "<h1>Heading</h1>"))
-    @patch('src.obsidian_to_anki.format_converter.FormatConverter.get_images')
-    @patch('src.obsidian_to_anki.format_converter.FormatConverter.get_audio')
-    @patch('src.obsidian_to_anki.format_converter.FormatConverter.fix_image_src', side_effect=lambda x: x.replace("local.png", "image.png"))
-    @patch('src.obsidian_to_anki.format_converter.FormatConverter.fix_audio_src', side_effect=lambda x: x.replace("local.mp3", "audio.mp3"))
+    @patch('src.atomics.format_converter.FormatConverter.obsidian_to_anki_math', side_effect=lambda x: x.replace("$a$", "\\(a\\)"))
+    @patch('src.atomics.format_converter.FormatConverter.curly_to_cloze', side_effect=lambda x: x.replace("{cloze}", "{{c1::cloze}}"))
+    @patch('src.atomics.format_converter.FormatConverter.markdown_parse', side_effect=lambda x: x.replace("# Heading", "<h1>Heading</h1>"))
+    @patch('src.atomics.format_converter.FormatConverter.get_images')
+    @patch('src.atomics.format_converter.FormatConverter.get_audio')
+    @patch('src.atomics.format_converter.FormatConverter.fix_image_src', side_effect=lambda x: x.replace("local.png", "image.png"))
+    @patch('src.atomics.format_converter.FormatConverter.fix_audio_src', side_effect=lambda x: x.replace("local.mp3", "audio.mp3"))
     def test_format(self, mock_fix_audio_src, mock_fix_image_src, mock_get_audio, mock_get_images, mock_markdown_parse, mock_curly_to_cloze, mock_obsidian_to_anki_math):
         text = "# Heading\nThis is $a$ math and {cloze} text. Also an image local.png and audio local.mp3"
         result = FormatConverter.format(text, cloze=True)

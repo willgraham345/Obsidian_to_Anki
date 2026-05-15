@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 import os
 import urllib.request
 
-from src.obsidian_to_anki.anki_connect import AnkiConnect
+from src.atomics.anki_connect import AnkiConnect
 
 @pytest.fixture
 def anki_connect_instance():
@@ -46,8 +46,8 @@ class TestAnkiConnect:
         with pytest.raises(Exception, match="response has an unexpected number of fields"):
             anki_connect_instance.parse(response)
 
-    @patch('src.obsidian_to_anki.anki_connect.urllib.request.urlopen')
-    @patch('src.obsidian_to_anki.anki_connect.json.load')
+    @patch('src.atomics.anki_connect.urllib.request.urlopen')
+    @patch('src.atomics.anki_connect.json.load')
     def test_invoke(self, mock_json_load, mock_urlopen, anki_connect_instance):
         mock_urlopen.return_value = MagicMock()
         mock_json_load.return_value = {"result": "invoke_success", "error": None}
@@ -74,8 +74,8 @@ class TestAnkiConnect:
         anki_connect = AnkiConnect(port=custom_port)
         assert anki_connect.port == custom_port
 
-    @patch('src.obsidian_to_anki.anki_connect.json.load')
-    @patch('src.obsidian_to_anki.anki_connect.urllib.request.urlopen')
+    @patch('src.atomics.anki_connect.json.load')
+    @patch('src.atomics.anki_connect.urllib.request.urlopen')
     def test_invoke_url_construction(self, mock_urlopen, mock_json_load):
         mock_urlopen.return_value = MagicMock()
         mock_json_load.return_value = {"result": "ok", "error": None}

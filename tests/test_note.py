@@ -2,10 +2,10 @@ import pytest
 from unittest.mock import patch, MagicMock, call
 import re
 
-from src.obsidian_to_anki.note import RegexNote
-from src.obsidian_to_anki import globals
-from src.obsidian_to_anki.format_converter import FormatConverter
-from src.obsidian_to_anki.utils import note_has_clozes
+from src.atomics.note import RegexNote
+from src.atomics import globals
+from src.atomics.format_converter import FormatConverter
+from src.atomics.utils import note_has_clozes
 
 
 class TestRegexNote:
@@ -46,7 +46,7 @@ class TestRegexNote:
         assert note.note_type == "Basic"
         assert note.groups == ["Group1", "Group2"]
 
-    @patch('src.obsidian_to_anki.note.FormatConverter.format', side_effect=lambda text, cloze: text.strip())
+    @patch('src.atomics.note.FormatConverter.format', side_effect=lambda text, cloze: text.strip())
     def test_regexnote_fields_property(self, mock_format):
         mock_match = MagicMock()
         mock_match.groups.return_value = ("Content1", "Content2")
@@ -58,9 +58,9 @@ class TestRegexNote:
             call("Content2", cloze=False)
         ], any_order=True)
 
-    @patch('src.obsidian_to_anki.note.FormatConverter.format')
-    @patch('src.obsidian_to_anki.note.FormatConverter.format_note_with_url')
-    @patch('src.obsidian_to_anki.note.FormatConverter.format_note_with_frozen_fields')
+    @patch('src.atomics.note.FormatConverter.format')
+    @patch('src.atomics.note.FormatConverter.format_note_with_url')
+    @patch('src.atomics.note.FormatConverter.format_note_with_frozen_fields')
     def test_regexnote_parse(self, mock_format_frozen, mock_format_url, mock_format_field):
         mock_format_field.side_effect = lambda text, cloze: text.strip()
         mock_match = MagicMock()
@@ -76,7 +76,7 @@ class TestRegexNote:
         mock_format_url.assert_not_called()
         mock_format_frozen.assert_not_called()
 
-    @patch('src.obsidian_to_anki.note.FormatConverter.format', side_effect=lambda text, cloze: text.strip())
+    @patch('src.atomics.note.FormatConverter.format', side_effect=lambda text, cloze: text.strip())
     def test_regexnote_parse_cloze_error(self, mock_format_field):
         globals.CONFIG_DATA["CurlyCloze"] = True
         mock_match = MagicMock()

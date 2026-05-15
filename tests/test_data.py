@@ -3,9 +3,9 @@ from unittest.mock import patch, MagicMock, mock_open
 import os
 import json
 
-from src.obsidian_to_anki.data import Data
-from src.obsidian_to_anki.db import NoteDB
-from src.obsidian_to_anki import globals
+from src.atomics.data import Data
+from src.atomics.db import NoteDB
+from src.atomics import globals
 
 
 @pytest.fixture(autouse=True)

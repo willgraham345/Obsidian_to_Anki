@@ -3,10 +3,10 @@ from unittest.mock import patch, MagicMock, call
 import os
 import re
 
-from src.obsidian_to_anki.directory import Directory
-from src.obsidian_to_anki.file import File
-from src.obsidian_to_anki.anki_connect import AnkiConnect
-from src.obsidian_to_anki import globals
+from src.atomics.directory import Directory
+from src.atomics.file import File
+from src.atomics.anki_connect import AnkiConnect
+from src.atomics import globals
 
 class TestDirectory:
 
@@ -15,11 +15,11 @@ class TestDirectory:
         globals.FILE_HASHES = {}
         yield
 
-    @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
-    @patch('src.obsidian_to_anki.directory.os.chdir')
-    @patch('src.obsidian_to_anki.directory.os.path.isdir', return_value=True)
-    @patch('src.obsidian_to_anki.directory.os.scandir')
-    @patch('src.obsidian_to_anki.directory.File')
+    @patch('src.atomics.directory.os.getcwd', return_value="/mock/parent")
+    @patch('src.atomics.directory.os.chdir')
+    @patch('src.atomics.directory.os.path.isdir', return_value=True)
+    @patch('src.atomics.directory.os.scandir')
+    @patch('src.atomics.directory.File')
     def test_init_directory_scan(self, MockFile, mock_scandir, mock_isdir, mock_chdir, mock_getcwd):
         # All files included; directories filtered out
         mock_entry1 = MagicMock(is_file=lambda: True, path="/mock/dir/file1.md")
@@ -49,10 +49,10 @@ class TestDirectory:
             call("/mock/dir/image.png"),
         ])
 
-    @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
-    @patch('src.obsidian_to_anki.directory.os.chdir')
-    @patch('src.obsidian_to_anki.directory.os.path.isdir', return_value=False)
-    @patch('src.obsidian_to_anki.directory.File')
+    @patch('src.atomics.directory.os.getcwd', return_value="/mock/parent")
+    @patch('src.atomics.directory.os.chdir')
+    @patch('src.atomics.directory.os.path.isdir', return_value=False)
+    @patch('src.atomics.directory.File')
     def test_init_onefile(self, MockFile, mock_isdir, mock_chdir, mock_getcwd):
         mock_file = MagicMock(filename="single.md", hash="hash_single")
         MockFile.return_value = mock_file
@@ -67,11 +67,11 @@ class TestDirectory:
         mock_file.scan_file.assert_called_once()
         MockFile.assert_called_once_with(file_path)
 
-    @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
-    @patch('src.obsidian_to_anki.directory.os.chdir')
-    @patch('src.obsidian_to_anki.directory.os.path.isdir', return_value=True)
-    @patch('src.obsidian_to_anki.directory.os.scandir')
-    @patch('src.obsidian_to_anki.directory.File')
+    @patch('src.atomics.directory.os.getcwd', return_value="/mock/parent")
+    @patch('src.atomics.directory.os.chdir')
+    @patch('src.atomics.directory.os.path.isdir', return_value=True)
+    @patch('src.atomics.directory.os.scandir')
+    @patch('src.atomics.directory.File')
     def test_init_file_hashes_skip(self, MockFile, mock_scandir, mock_isdir, mock_chdir, mock_getcwd):
         mock_entry = MagicMock(is_file=lambda: True, path="/mock/dir/existing.md")
         mock_scandir.return_value.__enter__.return_value = [mock_entry]
@@ -86,9 +86,9 @@ class TestDirectory:
         assert len(directory.files) == 0 # Should be skipped
         mock_file.scan_file.assert_not_called()
 
-    @patch('src.obsidian_to_anki.directory.os.chdir')
-    @patch('src.obsidian_to_anki.directory.os.scandir')
-    @patch('src.obsidian_to_anki.directory.AnkiConnect.request')
+    @patch('src.atomics.directory.os.chdir')
+    @patch('src.atomics.directory.os.scandir')
+    @patch('src.atomics.directory.AnkiConnect.request')
     def test_requests_1(self, mock_anki_request, mock_scandir, mock_chdir):
         mock_scandir.return_value.__enter__.return_value = []
         mock_file1 = MagicMock()
@@ -117,10 +117,10 @@ class TestDirectory:
         ], any_order=True)
         assert result == mock_anki_request.return_value
 
-    @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
-    @patch('src.obsidian_to_anki.directory.os.chdir')
-    @patch('src.obsidian_to_anki.directory.os.scandir')
-    @patch('src.obsidian_to_anki.directory.AnkiConnect.parse')
+    @patch('src.atomics.directory.os.getcwd', return_value="/mock/parent")
+    @patch('src.atomics.directory.os.chdir')
+    @patch('src.atomics.directory.os.scandir')
+    @patch('src.atomics.directory.AnkiConnect.parse')
     def test_parse_requests_1(self, mock_anki_parse, mock_scandir, mock_chdir, mock_getcwd):
         mock_scandir.return_value.__enter__.return_value = []
         mock_file1 = MagicMock()
@@ -174,10 +174,10 @@ class TestDirectory:
 
         mock_chdir.assert_has_calls([call("/mock/dir"), call("/mock/parent")])
 
-    @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
-    @patch('src.obsidian_to_anki.directory.os.chdir')
-    @patch('src.obsidian_to_anki.directory.os.scandir')
-    @patch('src.obsidian_to_anki.directory.AnkiConnect.request')
+    @patch('src.atomics.directory.os.getcwd', return_value="/mock/parent")
+    @patch('src.atomics.directory.os.chdir')
+    @patch('src.atomics.directory.os.scandir')
+    @patch('src.atomics.directory.AnkiConnect.request')
     def test_requests_2(self, mock_anki_request, mock_scandir, mock_chdir, mock_getcwd):
         mock_scandir.return_value.__enter__.return_value = []
         mock_file1 = MagicMock()
@@ -203,9 +203,9 @@ class TestDirectory:
         ], any_order=True)
         assert result == mock_anki_request.return_value
 
-    @patch('src.obsidian_to_anki.directory.os.getcwd', return_value="/mock/parent")
-    @patch('src.obsidian_to_anki.directory.os.chdir')
-    @patch('src.obsidian_to_anki.directory.os.scandir')
+    @patch('src.atomics.directory.os.getcwd', return_value="/mock/parent")
+    @patch('src.atomics.directory.os.chdir')
+    @patch('src.atomics.directory.os.scandir')
     def test_hashes(self, mock_scandir, mock_chdir, mock_getcwd):
         mock_scandir.return_value.__enter__.return_value = []
         mock_file1 = MagicMock(filename="file1.md", hash="hash1")
