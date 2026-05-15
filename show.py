@@ -1,7 +1,7 @@
 """
 Display pending changes in the anki_diff table.
 
-Usage (from obsidian_to_anki/):
+Usage (from repo root):
     uv run python show.py [--detail]
 
     --detail   Show full field content for each entry (default: truncated).

@@ -49,7 +49,7 @@ loop for each .md file in directory
       loop for each field line
         Note -> FormatConverter : format(field_text, cloze)
         activate FormatConverter
-        FormatConverter -> FormatConverter : obsidian_to_anki_math()
+        FormatConverter -> FormatConverter : convert_math()
         FormatConverter -> FormatConverter : protect math & code blocks
         FormatConverter -> FormatConverter : curly_to_cloze() [if enabled]
         FormatConverter -> FormatConverter : markdown_parse() via globals.md_parser

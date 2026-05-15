@@ -98,7 +98,7 @@ Directory --> App : {filepath: sha256_hash, ...}
 
 App -> Data : update_data_file({\n  "Added Media": globals.ADDED_MEDIA,\n  "File Hashes": {all_hashes}\n})
 activate Data
-Data -> Data : json.dump to obsidian_to_anki_data.json
+Data -> Data : json.dump to atomics_data.json
 Data -> globals : (FILE_HASHES used on next run\nto skip unchanged files)
 deactivate Data
 

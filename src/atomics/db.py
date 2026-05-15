@@ -39,7 +39,7 @@ class NoteDB:
     DEFAULT_DB_PATH = os.path.normpath(os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
         "..", "..",
-        "obsidian_to_anki.db"
+        "atomics.db"
     ))
 
     def __init__(self, db_path: str | None = None):

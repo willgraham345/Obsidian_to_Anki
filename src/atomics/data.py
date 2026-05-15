@@ -16,7 +16,7 @@ class Data:
                 os.path.dirname(os.path.realpath(__file__)),
                 "..",
                 "..",
-                "obsidian_to_anki_data.json"
+                "atomics_data.json"
             )
         ))
 

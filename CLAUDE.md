@@ -40,14 +40,14 @@ Markdown → File.scan_file() → Note.parse() → FormatConverter.format() → 
 |---|---|
 | `__main__.py` | Entry point; auto-launches Anki if AnkiConnect not responding on port 8765 |
 | `app.py` | CLI orchestrator — loads config/data, queries Anki for note types, processes files, executes two-stage requests |
-| `config.py` | Manages `obsidian_to_anki_config.ini` (syntax delimiters, defaults, custom regexps) |
+| `config.py` | Manages `atomics_config.ini` (syntax delimiters, defaults, custom regexps) |
 | `globals.py` | Shared mutable state: compiled regexes, note templates, media dict, field mappings, config data |
 | `file.py` | Scans a single markdown file for block/inline/regex notes; categorizes into add/edit/delete; writes IDs back to file |
 | `directory.py` | Iterates files in a directory, skips unchanged (by hash), builds batched AnkiConnect requests |
 | `note.py` | Three note classes: `Note` (block), `InlineNote` (single-line), `RegexNote` (custom pattern) — all produce `Note_and_id` namedtuples |
 | `format_converter.py` | Pipeline: math conversion → protect math/code → cloze conversion → markdown→HTML → restore math → extract/encode media → fix paths |
 | `anki_connect.py` | HTTP wrapper for AnkiConnect (JSON over POST to localhost:8765, API version 6); handles WSL host detection |
-| `data.py` | Persists `obsidian_to_anki_data.json` — tracks file SHA256 hashes and added media for incremental syncing |
+| `data.py` | Persists `atomics_data.json` — tracks file SHA256 hashes and added media for incremental syncing |
 | `utils.py` | Helpers: atomic file write, base64 encoding, cloze detection, span/ignore utilities, Anki process launcher |
 
 ### Two-Stage Request Process
@@ -92,14 +92,14 @@ New notes must be added first (stage 1) to obtain their IDs before deck/tag oper
 
 ## Configuration
 
-### `obsidian_to_anki_config.ini`
+### `atomics_config.ini`
 Created on first run. Sections:
 - `[Syntax]` — Note delimiters (START/END, STARTI/ENDI, TARGET DECK, FILE TAGS, DELETE, FROZEN)
 - `[Defaults]` — Deck name, default tag, CurlyCloze toggle, regex mode, Anki path/profile
 - `[Obsidian]` — Vault name, file link toggle
 - `[Custom Regexps]` — Per-note-type regex patterns (e.g., `Basic = ^󰠗 (.+?) ;; (.+)`)
 
-### `obsidian_to_anki_data.json`
+### `atomics_data.json`
 Runtime persistence: `{"Added Media": [...], "File Hashes": {...}}`
 
 Both files are gitignored.

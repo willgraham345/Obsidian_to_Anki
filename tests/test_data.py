@@ -33,7 +33,7 @@ class TestData:
 
     def test_init(self):
         data_instance = Data()
-        expected_path_suffix = "obsidian_to_anki_data.json"
+        expected_path_suffix = "atomics_data.json"
         assert data_instance.DATA_PATH.endswith(expected_path_suffix)
         assert os.path.isabs(data_instance.DATA_PATH)
 

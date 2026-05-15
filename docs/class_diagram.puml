@@ -218,7 +218,7 @@ package "Note Parsing" {
 
 class FormatConverter <<static>> {
   + {static} format(note_text, cloze): str
-  + {static} obsidian_to_anki_math(text): str
+  + {static} convert_math(text): str
   + {static} curly_to_cloze(text): str
   + {static} markdown_parse(text): str
   + {static} get_images(html)

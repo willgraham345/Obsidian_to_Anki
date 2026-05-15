@@ -170,12 +170,12 @@ assert result == "<p>Multiple paragraphs</p>\n<p>Second paragraph</p>"
 
 ## Files Already Fixed (Earlier Sessions)
 
-- `src/obsidian_to_anki/anki_connect.py` — reordered parse() field checks
-- `src/obsidian_to_anki/data.py` — fixed DATA_PATH `..` count
-- `src/obsidian_to_anki/format_converter.py` — SOUND_REGEXP, CLOZE_REGEXP, para strip
-- `src/obsidian_to_anki/app.py` — NOTE_REGEXP title consumption
-- `src/obsidian_to_anki/file.py` — vault URL `group(1)`
-- `src/obsidian_to_anki/note.py` — InlineNote tags, lstrip, added `parse()`
+- `src/atomics/anki_connect.py` — reordered parse() field checks
+- `src/atomics/data.py` — fixed DATA_PATH `..` count
+- `src/atomics/format_converter.py` — SOUND_REGEXP, CLOZE_REGEXP, para strip
+- `src/atomics/app.py` — NOTE_REGEXP title consumption
+- `src/atomics/file.py` — vault URL `group(1)`
+- `src/atomics/note.py` — InlineNote tags, lstrip, added `parse()`
 - `tests/test_utils.py` — ANKI_CLOZE_REGEXP, write_safe, contained_in, findignore, load_anki
 - `tests/test_config.py` — removed wrong setdefault assertions
 - `tests/test_app.py` — ArgumentParser mock, gen_regexp assertion, doubled side_effects

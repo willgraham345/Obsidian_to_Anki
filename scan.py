@@ -5,7 +5,7 @@ The vault is the source of truth. The DB caches vault state (notes table) and
 Anki state (anki_notes table). Scanning updates the vault snapshot; diff
 compares notes vs anki_notes and writes pending changes to the anki_diff table.
 
-Usage (from obsidian_to_anki/):
+Usage (from repo root):
     uv run python scan.py [vault_path] [--anki] [--force]
 
     vault_path   Path to Obsidian vault (falls back to 'Vault path' in config).
@@ -622,7 +622,7 @@ def main() -> None:
     if not _vault_raw:
         parser.error(
             "No vault path provided. Either pass vault_path as an argument "
-            "or set 'Vault path' in the [Obsidian] section of obsidian_to_anki_config.ini."
+            "or set 'Vault path' in the [Obsidian] section of atomics_config.ini."
         )
     vault_path = os.path.abspath(_vault_raw)
     if not os.path.isdir(vault_path):

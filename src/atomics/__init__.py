@@ -9,7 +9,7 @@ import logging
 # from .globals import ANKI_PORT
 
 logging.basicConfig(
-    filename='obsidian_to_anki_log.log',
+    filename='atomics.log',
     level=logging.DEBUG,
     format='%(asctime)s:::%(levelname)s:::%(funcName)s:::%(message)s'
 )

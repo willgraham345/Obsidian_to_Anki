@@ -18,7 +18,7 @@ class Config:
                 os.path.dirname(os.path.realpath(__file__)),
                 "..",
                 "..",
-                "obsidian_to_anki_config.ini"
+                "atomics_config.ini"
             )
         ))
 

@@ -13,7 +13,7 @@ participant "vault_diff.md\n(output file)" as MD
 
 SV -> Config    : load_config()
 Config --> SV   : CONFIG_DATA populated in globals
-SV -> NoteDB    : NoteDB() — open / create obsidian_to_anki.db
+SV -> NoteDB    : NoteDB() — open / create atomics.db
 NoteDB --> SV   : db handle
 SV -> SV        : _gen_regexp() — compile NOTE_REGEXP, DECK_REGEXP, …
 

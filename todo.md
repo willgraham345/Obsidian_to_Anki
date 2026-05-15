@@ -36,9 +36,9 @@ Fix path: audit `build_diff` stale→orphan promotion; add round-trip test for "
 ### Rename to "atomics"
 
 Files to touch:
-- `src/obsidian_to_anki/` → `src/atomics/` (directory rename)
+- `src/obsidian_to_anki/` → `src/atomics/` (done)
 - `pyproject.toml` — project name + scripts entry point
-- `scan.py`, `write.py`, `show.py` — `sys.path.insert` + all `from obsidian_to_anki import ...`
+- `scan.py`, `write.py`, `show.py` — `sys.path.insert` + all `from atomics import ...`
 - `tests/` — all imports
 - `CLAUDE.md` — references
 

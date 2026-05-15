@@ -8,7 +8,7 @@ template:
 template-version:
 ---
 
-"Atomics" = A regular expresssion "type". These are distinguished by each "Custom Regexps" in the `obsidian_to_anki.ini`.
+"Atomics" = A regular expresssion "type". These are distinguished by each "Custom Regexps" in the `atomics_config.ini`.
 "States" = The snapshot of how an atomic is being treated at this moment in time by the database, and other targets (Anki). States are explained more thoroughly below in `### State Changes`
 "Actions" = Actions are the scripts that are run from this tool. Writing, diffing, and scanning are actions.
 "Target" = Not a source of truth for an atomic, but a place we want to migrate or move the atomic towards.

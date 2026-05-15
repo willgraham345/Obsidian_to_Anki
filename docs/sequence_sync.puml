@@ -107,8 +107,8 @@ App -> Data : update_data_file({\n  "Added Media": globals.ADDED_MEDIA,\n  "File
 activate Data
 Data -> NoteDB : add_media(filename) [for each new media]
 Data -> NoteDB : set_file_hash(path, sha256) [for each file]
-Data -> Data : json.dump backup to obsidian_to_anki_data.json
-note right: JSON is human-readable backup;\nNoteDB (obsidian_to_anki.db) is primary store
+Data -> Data : json.dump backup to atomics_data.json
+note right: JSON is human-readable backup;\nNoteDB (atomics.db) is primary store
 Data -> globals : (FILE_HASHES used on next run\nto skip unchanged files)
 deactivate Data
 

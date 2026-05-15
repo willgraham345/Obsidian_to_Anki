@@ -93,7 +93,7 @@ class FormatConverter:
         return result
 
     @staticmethod
-    def obsidian_to_anki_math(note_text):
+    def convert_math(note_text):
         """Convert Obsidian-formatted math to Anki-formatted math."""
         return FormatConverter.OBS_INLINE_MATH_REGEXP.sub(
             FormatConverter.inline_anki_repl,
@@ -191,7 +191,7 @@ class FormatConverter:
     @staticmethod
     def format(note_text, cloze=False):
         """Apply all format conversions to note_text."""
-        note_text = FormatConverter.obsidian_to_anki_math(note_text)
+        note_text = FormatConverter.convert_math(note_text)
         # Extract the parts that are anki math
         math_matches = [
             math_match.group(0)

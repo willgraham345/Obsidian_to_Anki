@@ -1,7 +1,7 @@
 """
 Execute pending Anki changes from the anki_diff table.
 
-Usage (from obsidian_to_anki/):
+Usage (from repo root):
     uv run python write.py [--delete-orphans]
 
     --delete-orphans   Also delete orphaned Anki notes (operation='delete').

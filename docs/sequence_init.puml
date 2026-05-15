@@ -25,7 +25,7 @@ end note
 
 Main -> Config : Config()
 activate Config
-Config -> Config : CONFIG_PATH = normpath(…/obsidian_to_anki_config.ini)
+Config -> Config : CONFIG_PATH = normpath(…/atomics_config.ini)
 Config --> Main : config instance
 deactivate Config
 
@@ -58,7 +58,7 @@ end
 
 App -> Data : Data()
 activate Data
-Data -> Data : DATA_PATH = normpath(…/obsidian_to_anki_data.json)
+Data -> Data : DATA_PATH = normpath(…/atomics_data.json)
 Data --> App : data instance
 deactivate Data
 
@@ -77,7 +77,7 @@ alt DB empty AND JSON backup exists
   Data -> Data : json.load(DATA_PATH)
   note right
     First-run migration:
-    seeds DB from legacy obsidian_to_anki_data.json
+    seeds DB from legacy atomics_data.json
     (added media + file hashes).
     Falls back silently on JSON parse errors.
   end note

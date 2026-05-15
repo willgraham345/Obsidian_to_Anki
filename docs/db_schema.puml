@@ -1,5 +1,5 @@
 @startuml db_schema
-title Obsidian to Anki — SQLite Database Schema (obsidian_to_anki.db)
+title Obsidian to Anki — SQLite Database Schema (atomics.db)
 
 skinparam classAttributeIconSize 0
 skinparam classBorderColor #555555

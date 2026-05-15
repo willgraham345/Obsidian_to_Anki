@@ -14,7 +14,7 @@ participant globals
 
 App -> Config : Config()
 activate Config
-Config -> Config : CONFIG_PATH = …/obsidian_to_anki_config.ini\n(normpath relative to package dir)
+Config -> Config : CONFIG_PATH = …/atomics_config.ini\n(normpath relative to package dir)
 Config --> App : Config instance
 deactivate Config
 

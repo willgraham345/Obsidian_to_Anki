@@ -86,9 +86,9 @@ class TestFormatConverter:
         result = FormatConverter.display_anki_repl(match)
         assert result == "\\[a+b\\]"
 
-    def test_obsidian_to_anki_math(self):
+    def test_convert_math(self):
         text = "This is inline $a+b$ and this is display $$c+d$$"
-        result = FormatConverter.obsidian_to_anki_math(text)
+        result = FormatConverter.convert_math(text)
         assert result == "This is inline \\(a+b\\) and this is display \\[c+d\\]"
 
     def test_cloze_repl_unset_num(self):
@@ -168,18 +168,18 @@ class TestFormatConverter:
             result = FormatConverter.fix_audio_src(html_text)
             assert result == '[sound:audio.mp3][sound:remote.wav]'
 
-    @patch('src.atomics.format_converter.FormatConverter.obsidian_to_anki_math', side_effect=lambda x: x.replace("$a$", "\\(a\\)"))
+    @patch('src.atomics.format_converter.FormatConverter.convert_math', side_effect=lambda x: x.replace("$a$", "\\(a\\)"))
     @patch('src.atomics.format_converter.FormatConverter.curly_to_cloze', side_effect=lambda x: x.replace("{cloze}", "{{c1::cloze}}"))
     @patch('src.atomics.format_converter.FormatConverter.markdown_parse', side_effect=lambda x: x.replace("# Heading", "<h1>Heading</h1>"))
     @patch('src.atomics.format_converter.FormatConverter.get_images')
     @patch('src.atomics.format_converter.FormatConverter.get_audio')
     @patch('src.atomics.format_converter.FormatConverter.fix_image_src', side_effect=lambda x: x.replace("local.png", "image.png"))
     @patch('src.atomics.format_converter.FormatConverter.fix_audio_src', side_effect=lambda x: x.replace("local.mp3", "audio.mp3"))
-    def test_format(self, mock_fix_audio_src, mock_fix_image_src, mock_get_audio, mock_get_images, mock_markdown_parse, mock_curly_to_cloze, mock_obsidian_to_anki_math):
+    def test_format(self, mock_fix_audio_src, mock_fix_image_src, mock_get_audio, mock_get_images, mock_markdown_parse, mock_curly_to_cloze, mock_convert_math):
         text = "# Heading\nThis is $a$ math and {cloze} text. Also an image local.png and audio local.mp3"
         result = FormatConverter.format(text, cloze=True)
 
-        mock_obsidian_to_anki_math.assert_called_once()
+        mock_convert_math.assert_called_once()
         mock_curly_to_cloze.assert_called_once()
         mock_markdown_parse.assert_called_once()
         mock_get_images.assert_called_once()

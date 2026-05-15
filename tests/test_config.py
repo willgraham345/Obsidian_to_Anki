@@ -17,7 +17,7 @@ class TestConfig:
 
     def test_init(self):
         config = Config()
-        expected_path_suffix = "obsidian_to_anki_config.ini"
+        expected_path_suffix = "atomics_config.ini"
         assert config.CONFIG_PATH.endswith(expected_path_suffix)
         assert os.path.isabs(config.CONFIG_PATH)
 

@@ -1,4 +1,4 @@
-# obsidian-to-anki
+# atomics
 
 CLI tool that syncs flashcard patterns from Obsidian markdown to Anki via [AnkiConnect](https://ankiweb.net/shared/info/2055492159).
 
@@ -11,13 +11,12 @@ CLI tool that syncs flashcard patterns from Obsidian markdown to Anki via [AnkiC
 ## Install
 
 ```bash
-cd obsidian_to_anki
 uv sync
 ```
 
 ## Workflow
 
-Three scripts run in sequence. All run from `obsidian_to_anki/`.
+Three scripts run in sequence. All run from the repo root.
 
 ```bash
 uv run python scan.py --all          # 1. snapshot vault + Anki into local DB
@@ -58,7 +57,7 @@ Executes changes from `anki_diff.json` against Anki. Default is dry-run.
 | `--execute` | Actually write to Anki. Without this, prints what would happen. |
 | `--delete-orphans` | Delete Anki notes flagged as orphans in the manifest. Requires `--execute`. |
 
-## Config (`obsidian_to_anki_config.ini`)
+## Config (`atomics_config.ini`)
 
 Generated on first run of any script. Key sections:
 
