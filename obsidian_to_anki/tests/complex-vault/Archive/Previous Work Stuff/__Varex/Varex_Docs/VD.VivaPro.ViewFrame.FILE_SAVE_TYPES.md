@@ -1,1 +1,0 @@
-Enum that identifies which files the GUI can save. 

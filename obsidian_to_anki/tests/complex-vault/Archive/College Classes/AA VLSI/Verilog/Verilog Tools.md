@@ -1,2 +1,0 @@
-Really helpful tool on Ubuntu is [Verilator](https://www.veripool.org/verilator/) with its [Verilator Docs](https://verilator.org/guide/latest/verilating.html)
-- You can use it to generate verilog code directly from C++, or to compile Verilog. Cool stuff. 

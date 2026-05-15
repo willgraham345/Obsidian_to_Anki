@@ -1,6 +1,0 @@
-filters:
-  and:
-    - concept_of.contains(link("DP Creational Patterns"))
-views:
-  - type: table
-    name: Table

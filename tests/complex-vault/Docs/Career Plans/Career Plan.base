@@ -1,0 +1,29 @@
+filters:
+  and:
+    - file.tags.contains("taskNote")
+    - contexts.contains("career")
+views:
+  - type: table
+    name: Responsibilities
+    filters:
+      and:
+        - contexts.contains("responsibilities")
+    order:
+      - file.name
+      - status
+      - description
+      - contexts
+    sort: []
+    columnSize:
+      file.name: 306
+      note.scheduled: 143
+  - type: table
+    name: Skills
+    filters:
+      and:
+        - contexts.contains("skills")
+    order:
+      - file.name
+      - status
+      - description
+      - contexts

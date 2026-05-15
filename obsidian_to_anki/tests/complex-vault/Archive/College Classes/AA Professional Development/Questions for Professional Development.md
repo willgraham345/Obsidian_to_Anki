@@ -1,3 +1,0 @@
-- I don't have an invention. What's that about?
-- 5 Research Questions?
-- What is the point of this? I'm trying to find a job, not explore random theoretical job interviews. 

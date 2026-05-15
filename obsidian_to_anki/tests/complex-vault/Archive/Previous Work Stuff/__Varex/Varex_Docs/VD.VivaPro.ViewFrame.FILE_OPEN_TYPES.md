@@ -1,1 +1,0 @@
-Enum that has different save types that the GUI can open. 

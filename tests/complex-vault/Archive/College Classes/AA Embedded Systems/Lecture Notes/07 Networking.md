@@ -1,0 +1,37 @@
+Fallacies with Networking
+- Network unreliability
+	- Can cause data loss
+		- Mitigate this with handshaking, and redundancy
+- Latency is not zero
+- Bandwidth is not infinite
+	- Bandwidth = amount of data that can go across one line at a time
+	- Parallel communication is the width of the channel
+	- A bandwidth may be too small for the data we're trying to send, and it can cause data loss. This can be because of a bottleneck (i.e. a router that is faster than the data being sent)
+- Network isn't secure
+	- Security patches happen all the time
+	- Any information you transmit can and will be intercepted
+		- With security, we need to be aware of our threat model
+			- Sometimes, that may be the threat model that access to the device or the bus means that they're passing through some other manner
+	- How do we mitigate this problem?
+		- Encryption
+			- Increases latency
+		- Hardware cryptography
+- Topology changes
+	- Sometimes a node's death can lead to topological change
+	- System updates can cause topology changes
+- There isn't one administrator
+	- An administrator has executive privileges on the shell or terminal in which you're working
+	- Multiple administrators across multiple systems can counteract each other's work
+- Transport cost isn't zero
+	- Physical overhead
+- Network is not homogenous
+	- Web development is difficult because there are a ton of different screen sizes
+	- Carriage return linefeed
+	- Wifi will connect to an access point, to an Ethernet cable
+	- We may need to design our system around the different scenarios
+		- Different protocols and wifi points should be discussed and prioritized
+- In order deliverable
+	- Important, but hard to do.
+
+Every abstraction we use, should consider every failure mode and address them rather than hide them. 
+- Keep in mind how these should 

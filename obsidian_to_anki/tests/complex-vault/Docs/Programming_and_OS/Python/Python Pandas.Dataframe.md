@@ -1,7 +1,0 @@
----
-type: note
----
-# Background
-- 
-
-# Usage

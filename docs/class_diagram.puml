@@ -1,0 +1,328 @@
+@startuml class_diagram
+title Obsidian to Anki — Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam groupInheritance 2
+hide empty members
+
+package "Orchestration" {
+  class App {
+    + config: Config
+    + data: Data
+    + parser: ArgumentParser
+    --
+    + __init__(config: Config)
+    + get_fields()
+    + get_ids()
+    + get_add_media(): dict
+    + gen_regexp()
+    + setup_cli_parser()
+  }
+
+  class Config {
+    + CONFIG_PATH: str
+    --
+    + __init__()
+    + load_config()
+    + update_config()
+    + load_syntax(config)
+    + load_defaults(config)
+    + load_folder_decks(config)
+    + setup_syntax(config)
+    + setup_defaults(config)
+  }
+
+  class Data {
+    + DATA_PATH: str
+    --
+    + __init__()
+    + create_data_file()
+    + load_data_file()
+    + update_data_file(data: dict)
+    - _db(): NoteDB
+  }
+}
+
+package "Persistence" {
+  class NoteDB {
+    + db_path: str
+    --
+    + __init__(db_path: str = None)
+    + upsert_note(uuid, anki_id, file_path,\n  line_number, note_type,\n  field_1, field_2,\n  image_paths, tags, deck_name)
+    + get_note(uuid: str): dict
+    + get_note_by_location(file_path,\n  line_number, note_type): dict
+    + get_note_by_content(file_path,\n  note_type, field_1): dict
+    + delete_note(uuid: str)
+    + get_notes_for_file(file_path): list
+    + mark_synced(uuid: str, anki_id: int)
+    + update_anki_note_fields(anki_id,\n  field_1, field_2)
+    + get_file_hash(file_path): str
+    + set_file_hash(file_path, sha256)
+    + get_all_file_hashes(): dict
+    + add_media(filename: str)
+    + get_added_media(): list
+    + upsert_anki_note(anki_id, note_type,\n  field_1, field_2, tags,\n  deck_name, mod_timestamp)
+    + clear_anki_notes()
+    + reconcile_orphans(): int
+    + get_comparison_summary(): list[dict]
+    + get_comparison_rows(exclude_synced): list[dict]
+    + close()
+  }
+
+  note right of NoteDB
+    SQLite tables:
+    • notes (id TEXT PK, anki_id INTEGER?,
+      file_path, line_number, note_type,
+      field_1, field_2,
+      image_paths JSON, tags JSON,
+      deck_name, created_at, updated_at)
+    • file_hashes (file_path PK,
+      sha256, updated_at)
+    • added_media (filename PK)
+    • anki_notes (anki_id INTEGER PK,
+      note_type, field_1, field_2,
+      tags JSON, deck_name,
+      mod_timestamp, synced_at)
+
+    SQL VIEW:
+    • note_comparison — LEFT JOIN +
+      UNION of notes ↔ anki_notes
+      on anki_id; status column:
+      not_in_anki | stale_id |
+      modified | synced |
+      orphan_in_anki
+  end note
+}
+
+package "AnkiConnect" {
+  class AnkiConnect {
+    + port: int
+    + host: str
+    --
+    + __init__(port: int = 8765)
+    + request(action: str, **params): dict
+    + invoke(action: str, **params): dict
+    + parse(response: dict): dict
+  }
+}
+
+package "File Processing" {
+  class Directory {
+    + path: str
+    + parent: str
+    + files: list[File]
+    --
+    + __init__(abspath: str, onefile: str = None)
+    + requests_1(): dict
+    + parse_requests_1(response, tags)
+    + requests_2(): dict
+    + hashes(): dict
+  }
+
+  class File {
+    + filename: str
+    + path: str
+    + file_stem: str
+    + url: str
+    + file: str
+    + frozen_fields_dict: dict
+    + target_deck: str
+    + global_tags: str
+    + notes_to_add: list
+    + notes_to_edit: list
+    + notes_to_delete: list
+    + inline_notes_to_add: list
+    + id_indexes: list
+    + regex_id_indexes: list
+    + uuid_for_add: list
+    + uuid_for_regex_add: list
+    + uuid_for_inline_add: list
+    + hash: str <<property>>
+    --
+    + __init__(filepath: str)
+    + _setup_scan()
+    + scan_file()
+    + add_spans_to_ignore()
+    + _handle_block_note(match)
+    + _handle_inline_note(match)
+    + search(note_type: str, regexp: str)
+    + _apply_change_detection(parsed,\n  file_path, line_no)
+    + _line_of(char_pos: int): int
+    + _vault_rel_path(): str
+    + setup_frozen_fields_dict()
+    + setup_target_deck()
+    + setup_global_tags()
+    + update_db_anki_ids()
+    + write_ids()
+    + write_file()
+    + remove_empties()
+    + get_add_notes(): dict
+    + get_update_fields(): dict
+    + get_delete_notes(): dict
+    + get_note_info(): dict
+    + get_change_decks(): dict
+    + get_add_tags(): dict
+    + get_clear_tags(): dict
+    + get_cards(note_info_response)
+  }
+}
+
+package "Note Parsing" {
+  class Note {
+    + text: str
+    + lines: list[str]
+    + identifier: int | None
+    + tags: list[str]
+    + note_type: str
+    + field_names: list[str]
+    + current_field: str
+    + fields: dict <<property>>
+    --
+    + __init__(note_text: str)
+    + field_from_line(line: str): tuple
+    + parse(deck, url=None,\n  frozen_fields_dict=None,\n  file_stem=None): Note_and_id
+  }
+
+  class InlineNote {
+    + text: str
+    + identifier: int | None
+    + tags: list[str]
+    + note_type: str
+    + field_names: list[str]
+    + current_field: str
+    + fields: dict <<property>>
+    --
+    + __init__(note_text: str)
+    + parse(deck, url=None,\n  frozen_fields_dict=None,\n  file_stem=None): Note_and_id
+  }
+
+  class RegexNote {
+    + match: Match
+    + note_type: str
+    + groups: list[str]
+    + group_num: int
+    + identifier: int | None
+    + tags: list[str]
+    + field_names: list[str]
+    + fields: dict <<property>>
+    --
+    + __init__(matchobject, note_type,\n  tags=False, id=False)
+    + parse(deck, url=None,\n  frozen_fields_dict=None,\n  file_stem=None): Note_and_id | int
+  }
+
+  class Note_and_id <<namedtuple>> {
+    + note: dict
+    + id: int | None
+  }
+}
+
+class FormatConverter <<static>> {
+  + {static} format(note_text, cloze): str
+  + {static} obsidian_to_anki_math(text): str
+  + {static} curly_to_cloze(text): str
+  + {static} markdown_parse(text): str
+  + {static} get_images(html)
+  + {static} get_audio(html)
+  + {static} fix_image_src(html): str
+  + {static} fix_audio_src(html): str
+  + {static} format_note_with_url(note, url)
+  + {static} format_note_with_file_stem(note, file_stem)
+  + {static} format_note_with_frozen_fields(note, frozen)
+}
+
+class scan_vault <<script>> {
+  + run_db_scan(vault_path, db): tuple
+  + run_anki_snapshot(db): int
+  + run_diff_output(db, output_path, vault_path)
+  + main()
+  --
+  CLI flags:
+  vault_path (positional)
+  --db  --snapshot  --output  --all
+}
+
+class globals <<module>> {
+  + CONFIG_DATA: dict
+  + FIELDS_DICT: dict
+  + NOTE_DICT_TEMPLATE: dict
+  + EXISTING_IDS: list
+  + MEDIA: dict
+  + ADDED_MEDIA: list
+  + FILE_HASHES: dict
+  + NOTE_DB: NoteDB | None
+  + UNMATCHED_DECK: str
+  + ANKI_PORT: int
+  --
+  Regexes compiled by App.gen_regexp():
+  + NOTE_REGEXP: Pattern
+  + INLINE_REGEXP: Pattern
+  + DECK_REGEXP: Pattern
+  + TAG_REGEXP: Pattern
+  + FROZEN_REGEXP: Pattern
+  + EMPTY_REGEXP: Pattern
+  + INLINE_EMPTY_REGEXP: Pattern
+  + VAULT_PATH_REGEXP: Pattern
+  --
+  Regexes compiled at import time:
+  + ANKI_CLOZE_REGEXP: Pattern
+  + OBS_INLINE_MATH_REGEXP: Pattern
+  + OBS_DISPLAY_MATH_REGEXP: Pattern
+  + OBS_CODE_REGEXP: Pattern
+  + OBS_DISPLAY_CODE_REGEXP: Pattern
+  + md_parser: Markdown
+  + ID_PREFIX: str
+  + TAG_PREFIX: str
+  + TAG_SEP: str
+}
+
+' ─── Relationships ─────────────────────────────────────────────────────────────
+
+' Orchestration
+App "1" --> "1" Config : uses
+App "1" --> "1" Data : uses
+App "1" --> "1..*" Directory : creates
+App "1" --> "1" AnkiConnect : uses
+App "1" --> "1" NoteDB : creates\n(sets globals.NOTE_DB)
+
+' Persistence
+Data "1" --> "1" NoteDB : primary store\n(JSON is backup)
+File ..> NoteDB : upsert/query via\nglobals.NOTE_DB
+
+' File processing
+Directory "1" --> "1..*" File : creates/manages
+
+' Note creation — all three note types come from File
+File ..> Note      : creates (block notes)
+File ..> InlineNote : creates (inline notes)
+File ..> RegexNote  : creates (custom regexp notes\nvia search())
+
+' Note results
+Note ..> Note_and_id : returns
+InlineNote ..> Note_and_id : returns
+RegexNote ..> Note_and_id : returns
+
+' Format conversion
+Note ..> FormatConverter : calls format()
+InlineNote ..> FormatConverter : calls format()
+RegexNote ..> FormatConverter : calls format()
+
+' Config and AnkiConnect
+Config ..> AnkiConnect : invoke() on update_config()
+
+' scan_vault script relationships
+scan_vault ..> Config     : load_config()
+scan_vault ..> NoteDB     : create / query / upsert
+scan_vault ..> File       : scan_file()
+scan_vault ..> AnkiConnect : invoke findNotes /\n  notesInfo / cardsInfo
+scan_vault ..> globals    : writes FIELDS_DICT\nEXISTING_IDS FILE_HASHES
+
+' Global state reads/writes
+Config ..> globals     : writes CONFIG_DATA\nNOTE_DICT_TEMPLATE\nEMPTY_REGEXP
+Data ..> globals       : writes FILE_HASHES\nADDED_MEDIA
+FormatConverter ..> globals : reads md_parser\nwrites MEDIA
+Note ..> globals       : reads FIELDS_DICT\nNOTE_DICT_TEMPLATE
+Directory ..> globals  : reads FILE_HASHES
+File ..> globals       : reads OBS_*_REGEXP\n(add_spans_to_ignore)\nreads CONFIG_DATA
+App ..> globals        : writes FIELDS_DICT\nEXISTING_IDS NOTE_DB
+
+@enduml

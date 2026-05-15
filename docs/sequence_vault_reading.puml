@@ -1,0 +1,228 @@
+@startuml sequence_vault_reading
+title Reading an Obsidian Vault — File.scan_file()
+
+participant App
+participant Directory
+participant File
+participant "Note / InlineNote" as Note
+participant RegexNote
+participant FormatConverter
+participant NoteDB
+participant globals
+
+App -> Directory : __init__(abspath, regex=False)
+activate Directory
+
+loop for each file in directory
+  Directory -> File : __init__(filepath)
+  activate File
+  File -> File : read file content (utf-8)\nset filename, path, file_stem, url
+  File --> Directory : File instance
+  deactivate File
+
+  Directory -> globals : check FILE_HASHES[file.filename]
+  alt file hash unchanged
+    Directory -> Directory : skip file
+  else file is new or changed
+    Directory -> File : scan_file()
+    activate File
+
+    ' ── Stage 1: Setup ─────────────────────────────────────────────────────
+    File -> File : _setup_scan()
+    note right
+      Calls:
+        setup_frozen_fields_dict() — parse FROZEN_REGEXP matches
+        setup_target_deck()        — from DECK_REGEXP or FOLDER_DECKS
+        setup_global_tags()        — from TAG_REGEXP
+      Initialises collectors to []:
+        notes_to_add, id_indexes, regex_id_indexes
+        notes_to_edit, notes_to_delete
+        inline_notes_to_add
+        uuid_for_add, uuid_for_regex_add, uuid_for_inline_add
+    end note
+
+    ' ── Stage 2: Ignore Spans ──────────────────────────────────────────────
+    File -> File : ignore_spans = []\nadd_spans_to_ignore()
+    note right
+      Marks regions to skip during all subsequent searches:
+        globals.OBS_INLINE_MATH_REGEXP   ($…$)
+        globals.OBS_DISPLAY_MATH_REGEXP  ($$…$$)
+        globals.OBS_CODE_REGEXP          (`…`)
+        globals.OBS_DISPLAY_CODE_REGEXP  (```…```)
+    end note
+
+    ' ── Stage 3: Block Notes ───────────────────────────────────────────────
+    loop for each NOTE_REGEXP match (START…END block)
+      File -> File : _handle_block_note(match)
+      activate File
+
+      File -> Note : Note(note_text)
+      activate Note
+      Note -> Note : extract identifier from last line (ID_REGEXP)
+      Note -> Note : extract tags from TAG_PREFIX line
+      Note -> Note : set note_type from first line
+      Note --> File : Note instance
+      deactivate Note
+
+      File -> Note : parse(deck, url, frozen_fields_dict, file_stem)
+      activate Note
+      loop for each field line
+        Note -> FormatConverter : format(field_text, cloze=?)
+        activate FormatConverter
+        FormatConverter -> FormatConverter : obsidian_to_anki_math()
+        FormatConverter -> FormatConverter : protect math & code blocks
+        FormatConverter -> FormatConverter : curly_to_cloze() [if CurlyCloze enabled]
+        FormatConverter -> FormatConverter : markdown_parse() via globals.md_parser
+        FormatConverter -> FormatConverter : restore math (HTML-escaped)
+        FormatConverter -> FormatConverter : get_images() + get_audio()
+        FormatConverter -> globals : store base64 media in MEDIA dict
+        FormatConverter -> FormatConverter : fix_image_src() + fix_audio_src()
+        FormatConverter -> FormatConverter : strip outer <p> tags
+        FormatConverter --> Note : HTML string
+        deactivate FormatConverter
+      end
+      Note -> globals : read NOTE_DICT_TEMPLATE
+      Note --> File : Note_and_id(note_dict, id)
+      deactivate Note
+
+      File -> File : _apply_change_detection(parsed, file_path, line_no)
+      activate File
+      note right
+        Only runs when globals.NOTE_DB is set
+        AND the note has no existing Anki ID (id is None).
+      end note
+      File -> NoteDB : get_note_by_location(file_path, line_no, note_type)
+      NoteDB --> File : existing record or None
+      alt existing record found AND has anki_id AND content changed
+        note right: field_1 or field_2 differs from DB record
+        File -> File : notes_to_delete.append(existing["anki_id"])
+        note right
+          Old Anki card queued for deletion.
+          Note is then re-added as new, preserving
+          the stable UUID while getting a new anki_id.
+        end note
+      end
+      deactivate File
+
+      alt id is None (new note)
+        File -> NoteDB : upsert_note(uuid, anki_id=None,\n  file_path, line_number, note_type,\n  field_1, field_2, image_paths,\n  tags, deck_name)
+        note right: uuid reused if location already in DB,\notherwise a new UUID is generated
+        File -> File : notes_to_add.append(parsed.note)\nid_indexes.append(match.end())\nuuid_for_add.append(uuid)
+      else id in globals.EXISTING_IDS (known existing note)
+        File -> NoteDB : upsert_note(uuid, anki_id=id, …)
+        File -> File : notes_to_edit.append(parsed)
+      else id unknown / stale
+        File -> File : log warning, skip note
+      end
+
+      deactivate File
+    end
+
+    ' ── Stage 4: Inline Notes ──────────────────────────────────────────────
+    loop for each INLINE_REGEXP match (STARTI…ENDI)
+      File -> File : _handle_inline_note(match)
+      note right
+        Same flow as block notes:
+        • InlineNote(note_text).parse()
+        • _apply_change_detection()
+        • NoteDB upsert
+        • Route to inline_notes_to_add[] + uuid_for_inline_add[]
+          or notes_to_edit[]
+        Fields parsed by space-separated token markers
+        (not newline-delimited).
+      end note
+      File -> File : inline_notes_to_add.append()\nor notes_to_edit.append()
+    end
+
+    ' ── Stage 5: Custom Regex Notes ────────────────────────────────────────
+    loop for each (note_type, regexp) in CONFIG_DATA["CUSTOM_REGEXPS"]
+      File -> File : search(note_type, regexp)
+      activate File
+
+      note right
+        Builds (or reuses from _regex_cache) 4 compiled variants:
+          regexp_tags_id  — user pattern + TAG_REGEXP_STR + ID_REGEXP_STR
+          regexp_id       — user pattern + ID_REGEXP_STR
+          regexp_tags     — user pattern + TAG_REGEXP_STR
+          regexp_plain    — user pattern (anchored to EOL)
+        Variants scanned in priority order; each match added
+        to ignore_spans so lower-priority variants skip it.
+      end note
+
+      loop for each match of regexp_tags_id (has both tags AND ID)
+        File -> RegexNote : RegexNote(match, note_type, tags=True, id=True)
+        File -> RegexNote : parse(deck, url, frozen_fields_dict, file_stem)
+        RegexNote --> File : Note_and_id(note_dict, id)
+        alt id in globals.EXISTING_IDS
+          File -> NoteDB : upsert_note(uuid, anki_id=id, …)
+          File -> File : notes_to_edit.append(parsed)
+        else stale ID
+          File -> File : log warning, skip
+        end
+      end
+
+      loop for each match of regexp_id (ID only, no tags)
+        File -> RegexNote : RegexNote(match, note_type, tags=False, id=True)
+        File -> RegexNote : parse(…)
+        RegexNote --> File : Note_and_id(note_dict, id)
+        alt id in globals.EXISTING_IDS
+          File -> NoteDB : upsert_note(uuid, anki_id=id, …)
+          File -> File : notes_to_edit.append(parsed)
+        else stale ID
+          File -> File : log warning, skip
+        end
+      end
+
+      loop for each match of regexp_tags (tags, no ID)
+        File -> RegexNote : RegexNote(match, note_type, tags=True, id=False)
+        File -> RegexNote : parse(…)
+        RegexNote --> File : Note_and_id or 1 (cloze validation fail)
+        alt parse returned 1
+          File -> File : skip (invalid cloze note)
+        else valid
+          File -> File : _apply_change_detection(parsed, file_path, line_no)
+          File -> NoteDB : upsert_note(uuid, anki_id=None, …)
+          File -> File : notes_to_add.append(parsed.note)\nregex_id_indexes.append(match.end())\nuuid_for_regex_add.append(uuid)
+        end
+      end
+
+      loop for each match of regexp_plain (no tags, no ID)
+        File -> RegexNote : RegexNote(match, note_type, tags=False, id=False)
+        File -> RegexNote : parse(…)
+        RegexNote --> File : Note_and_id or 1
+        alt parse returned 1
+          File -> File : skip
+        else valid
+          File -> File : _apply_change_detection(parsed, file_path, line_no)
+          File -> NoteDB : upsert_note(uuid, anki_id=None, …)
+          File -> File : notes_to_add.append(parsed.note)\nregex_id_indexes.append(match.end())\nuuid_for_regex_add.append(uuid)
+        end
+      end
+
+      deactivate File
+    end
+
+    ' ── Stage 6: Deletion Markers ──────────────────────────────────────────
+    loop for each EMPTY_REGEXP match (DELETE + ID lines)
+      File -> File : notes_to_delete.append(int(match.group(1)))
+      note right
+        EMPTY_REGEXP matches lines of the form:
+          DELETE ID: <anki_id>
+        These are notes the user has marked for removal.
+        The extracted anki_id is queued for deleteNotes
+        in the subsequent AnkiConnect Stage 1 request.
+      end note
+    end
+
+    File --> Directory : (scan complete;\n  notes_to_add, notes_to_edit,\n  notes_to_delete, inline_notes_to_add\n  all populated)
+    deactivate File
+
+    Directory -> Directory : files_changed.append(file)
+  end
+end
+
+Directory -> Directory : self.files = files_changed
+Directory --> App : Directory instance
+deactivate Directory
+
+@enduml

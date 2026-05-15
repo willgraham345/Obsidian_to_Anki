@@ -1,0 +1,118 @@
+@startuml sequence_scan_vault
+title scan_vault.py — Vault Scan, Anki Snapshot, and Diff Output
+
+participant "scan_vault.py\n(CLI)" as SV
+participant Config
+participant NoteDB
+participant File
+participant AnkiConnect
+participant "Anki Desktop\n(port 8765)" as Anki
+participant "vault_diff.md\n(output file)" as MD
+
+== Initialisation (always) ==
+
+SV -> Config    : load_config()
+Config --> SV   : CONFIG_DATA populated in globals
+SV -> NoteDB    : NoteDB() — open / create obsidian_to_anki.db
+NoteDB --> SV   : db handle
+SV -> SV        : _gen_regexp() — compile NOTE_REGEXP, DECK_REGEXP, …
+
+note over SV
+  Stage selection rules
+  ─────────────────────
+  No flags      → --db only
+  --all         → --db + --snapshot + --output
+  Any combo of  --db / --snapshot / --output
+  is also valid.
+end note
+
+== Stage 1: --db — Vault Scan ==
+
+SV -> SV : os.walk(vault_path), skip hidden dirs
+
+loop for each .md file
+  SV -> File   : File(filepath)
+  SV -> File   : scan_file()
+  File --> SV  : notes_to_add, notes_to_edit
+  loop for each note
+    File -> NoteDB : upsert_note(uuid, anki_id, file_path,\n  line_number, note_type,\n  field_1, field_2, …)
+  end
+end
+
+SV -> NoteDB : SELECT note_type, COUNT(*) FROM notes GROUP BY note_type
+NoteDB --> SV : notes-by-type summary
+SV -> SV     : print scan summary (files, notes, breakdown)
+
+== Stage 2: --snapshot — Anki Snapshot (requires AnkiConnect) ==
+
+SV -> AnkiConnect   : invoke("findNotes", query="")
+AnkiConnect -> Anki : HTTP POST — findNotes
+Anki --> AnkiConnect: [note_id, …]
+AnkiConnect --> SV  : full note-id list
+
+loop in chunks of 50
+  SV -> AnkiConnect   : invoke("notesInfo", notes=[chunk])
+  AnkiConnect -> Anki : HTTP POST — notesInfo
+  Anki --> AnkiConnect: [{noteId, modelName, fields, tags, cards, mod}, …]
+  AnkiConnect --> SV  : note-info dicts
+end
+
+SV -> AnkiConnect   : invoke("cardsInfo", cards=[all_card_ids])
+AnkiConnect -> Anki : HTTP POST — cardsInfo
+Anki --> AnkiConnect: [{cardId, deckName}, …]
+AnkiConnect --> SV  : card→deck mapping
+
+SV -> NoteDB : clear_anki_notes()
+loop for each Anki note
+  SV -> NoteDB : upsert_anki_note(anki_id, note_type,\n  field_1, field_2, tags, deck_name, mod_timestamp)
+end
+
+SV -> NoteDB : get_comparison_summary()
+note right of NoteDB
+  SELECT status, COUNT(*) AS n
+  FROM note_comparison
+  GROUP BY status
+  ─────────────────────────
+  Statuses:
+  • not_in_anki    — vault note, no anki_id
+  • stale_id       — vault has anki_id but
+                     absent from snapshot
+  • modified       — both sides present but
+                     field content differs
+  • synced         — both sides agree
+  • orphan_in_anki — in Anki, not in vault
+end note
+NoteDB --> SV : [{status, n}, …]
+SV -> SV      : print snapshot + comparison summary
+
+== Stage 3: --output — Markdown Diff ==
+
+SV -> NoteDB : get_comparison_rows(exclude_synced=True)
+note right of NoteDB
+  SELECT * FROM note_comparison
+  WHERE status != 'synced'
+  ORDER BY status, note_type, file_path
+end note
+NoteDB --> SV : diff rows (modified / not_in_anki /\n  stale_id / orphan_in_anki)
+
+SV -> SV : build markdown — summary table + details table
+note right of SV
+  Columns:
+  Status | Note Type | File Path
+  Vault Field 1 | Vault Field 2
+  Anki Field 1  | Anki Field 2
+  Tags | Deck
+  ─────────────────────────────
+  HTML stripped, cells truncated
+  to 80 chars for readability.
+end note
+
+SV -> MD : write vault_diff.md (UTF-8)
+MD --> SV : (done)
+SV -> SV  : print output path + row count
+
+== Teardown ==
+
+SV -> NoteDB : close()
+
+@enduml

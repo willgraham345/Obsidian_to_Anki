@@ -1,6 +1,0 @@
----
-headings:
-  - "[[#Concepts of Note]]"
----
-
-
