@@ -3,6 +3,27 @@
 import json
 import urllib.request
 import os
+from enum import StrEnum
+
+
+class Action(StrEnum):
+    MULTI             = "multi"
+    ADD_NOTE          = "addNote"
+    UPDATE_NOTE       = "updateNote"
+    UPDATE_NOTE_FIELDS = "updateNoteFields"
+    DELETE_NOTES      = "deleteNotes"
+    NOTES_INFO        = "notesInfo"
+    FIND_NOTES        = "findNotes"
+    CARDS_INFO        = "cardsInfo"
+    CHANGE_DECK       = "changeDeck"
+    ADD_TAGS          = "addTags"
+    REMOVE_TAGS       = "removeTags"
+    GET_TAGS          = "getTags"
+    STORE_MEDIA_FILE  = "storeMediaFile"
+    MODEL_NAMES       = "modelNames"
+    MODEL_FIELD_NAMES = "modelFieldNames"
+    CREATE_DECK       = "createDeck"
+    VERSION           = "version"
 
 
 class AnkiConnect:

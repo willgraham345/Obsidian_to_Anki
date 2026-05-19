@@ -6,7 +6,7 @@ import logging
 
 from . import globals
 from .file import File
-from .anki_connect import AnkiConnect
+from .anki_connect import AnkiConnect, Action
 
 
 def _natural_sort_key(file):
@@ -72,45 +72,33 @@ class Directory:
         logging.info("Adding notes into Anki...")
         requests.append(
             AnkiConnect.request(
-                "multi",
-                actions=[
-                    file.get_add_notes()
-                    for file in self.files
-                ]
+                Action.MULTI,
+                actions=[file.get_add_notes() for file in self.files]
             )
         )
         logging.info("Getting card IDs of notes to be edited...")
         requests.append(
             AnkiConnect.request(
-                "multi",
-                actions=[
-                    file.get_note_info()
-                    for file in self.files
-                ]
+                Action.MULTI,
+                actions=[file.get_note_info() for file in self.files]
             )
         )
-        logging.info("Updating fields of existing notes...")
+        logging.info("Updating fields and tags of existing notes...")
         requests.append(
             AnkiConnect.request(
-                "multi",
-                actions=[
-                    file.get_update_fields()
-                    for file in self.files
-                ]
+                Action.MULTI,
+                actions=[file.get_update_notes() for file in self.files]
             )
         )
         logging.info("Removing empty notes...")
         requests.append(
             AnkiConnect.request(
-                "multi",
-                actions=[
-                    file.get_delete_notes()
-                    for file in self.files
-                ]
+                Action.MULTI,
+                actions=[file.get_delete_notes() for file in self.files]
             )
         )
         return AnkiConnect.request(
-            "multi",
+            Action.MULTI,
             actions=requests
         )
 
@@ -145,45 +133,17 @@ class Directory:
     def requests_2(self) -> dict:
         """Generates the second set of AnkiConnect requests for the files in this directory.
 
-        This includes requests for changing note decks and managing tags.
+        Tags are now handled atomically in stage 1 via updateNote; this stage
+        only moves cards to their target deck.
 
         :returns: A dictionary representing the AnkiConnect 'multi' action request containing all second-stage requests.
         :rtype: dict
         """
         logging.info("Forming request 2 for directory " + self.path)
-        requests = list()
         logging.info("Moving cards to target deck...")
-        requests.append(
-            AnkiConnect.request(
-                "multi",
-                actions=[
-                    file.get_change_decks()
-                    for file in self.files
-                ]
-            )
-        )
-        logging.info("Replacing tags...")
-        requests.append(
-            AnkiConnect.request(
-                "multi",
-                actions=[
-                    file.get_clear_tags()
-                    for file in self.files
-                ]
-            )
-        )
-        requests.append(
-            AnkiConnect.request(
-                "multi",
-                actions=[
-                    file.get_add_tags()
-                    for file in self.files
-                ]
-            )
-        )
         return AnkiConnect.request(
-            "multi",
-            actions=requests
+            Action.MULTI,
+            actions=[file.get_change_decks() for file in self.files]
         )
 
     def hashes(self) -> dict:

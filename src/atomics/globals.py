@@ -3,6 +3,33 @@
 import collections
 import markdown
 import re
+from enum import StrEnum
+
+
+class NoteAction(StrEnum):
+    ADD          = "add"
+    EDIT         = "edit"
+    RETYPE       = "retype"
+    LINK         = "link"
+    REVIEW       = "review"
+    SKIP         = "skip"
+    NONE         = "none"
+    UPDATE_TYPE   = "update_type"
+    UPDATE_FIELDS  = "update_fields"
+    UPDATE_FIELD_1 = "update_field_1"
+    UPDATE_FIELD_2 = "update_field_2"
+    UPDATE_DECK   = "update_deck"
+
+
+class NoteState(StrEnum):
+    NOT_IN_ANKI    = "not_in_anki"
+    STALE_ID       = "stale_id"
+    SYNCED         = "synced"
+    MODIFY_TYPE    = "modify_type"
+    MODIFY_FIELDS  = "modify_fields"
+    MODIFY_FIELD_1 = "modify_field_1"
+    MODIFY_FIELD_2 = "modify_field_2"
+    MODIFY_DECK    = "modify_deck"
 
 MEDIA = dict()
 

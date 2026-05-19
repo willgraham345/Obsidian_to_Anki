@@ -10,7 +10,7 @@ from .config import Config
 from .data import Data
 from .db import NoteDB
 from .directory import Directory
-from .anki_connect import AnkiConnect
+from .anki_connect import AnkiConnect, Action
 
 # Original code, I don't want to deal with the GUI. Leaving GOOEY=False as the default.
 # try:
@@ -105,11 +105,7 @@ class App:
                 directories = [Directory(file_dir, onefile=self.path)]
             requests = list()
             print("Getting tag list")
-            requests.append(
-                AnkiConnect.request(
-                    "getTags"
-                )
-            )
+            requests.append(AnkiConnect.request(Action.GET_TAGS))
             print("Adding media with these filenames...")
             print(list(globals.MEDIA.keys()))
             requests.append(self.get_add_media())
@@ -117,7 +113,7 @@ class App:
             for directory in directories:
                 requests.append(directory.requests_1())
             result = AnkiConnect.invoke(
-                "multi",
+                Action.MULTI,
                 actions=requests
             )
             tags = AnkiConnect.parse(result[0])
@@ -128,7 +124,7 @@ class App:
             for directory in directories:
                 requests.append(directory.requests_2())
             AnkiConnect.invoke(
-                "multi",
+                Action.MULTI,
                 actions=requests
             )
             globals.ADDED_MEDIA = set(globals.ADDED_MEDIA)
@@ -249,10 +245,10 @@ class App:
         :rtype: dict
         """
         return AnkiConnect.request(
-            "multi",
+            Action.MULTI,
             actions=[
                 AnkiConnect.request(
-                    "storeMediaFile",
+                    Action.STORE_MEDIA_FILE,
                     filename=key,
                     data=value
                 )
@@ -265,22 +261,15 @@ class App:
 
         The retrieved data is stored in `globals.FIELDS_DICT`.
         """
-        note_types = AnkiConnect.invoke("modelNames")
+        note_types = AnkiConnect.invoke(Action.MODEL_NAMES)
         fields_request = [
-            AnkiConnect.request(
-                "modelFieldNames", modelName=note
-            )
+            AnkiConnect.request(Action.MODEL_FIELD_NAMES, modelName=note)
             for note in note_types
         ]
-        result = AnkiConnect.invoke(
-            "multi", actions=fields_request
-        )
+        result = AnkiConnect.invoke(Action.MULTI, actions=fields_request)
         globals.FIELDS_DICT = {
             note_type: AnkiConnect.parse(fields)
-            for note_type, fields in zip(
-                note_types,
-                result
-            )
+            for note_type, fields in zip(note_types, result)
         }
 
     def get_ids(self):
@@ -288,4 +277,4 @@ class App:
 
         The retrieved IDs are stored in `globals.EXISTING_IDS`.
         """
-        globals.EXISTING_IDS = AnkiConnect.invoke("findNotes", query="")
+        globals.EXISTING_IDS = AnkiConnect.invoke(Action.FIND_NOTES, query="")

@@ -848,3 +848,237 @@ class TestRescanPreservesAnkiId:
                                         "<p>Hello</p>", "<p>World</p>", "Default")
         assert result is not None, "Content fallback must not return None with duplicates"
         assert result["anki_id"] == 99999, "Must pick the row with anki_id"
+
+    def test_field_1_stripped_fallback_finds_record_after_field_2_change(self, db):
+        """field_2 changed → content lookup fails → stripped field_1 fallback must succeed."""
+        _make_note(db, uuid="orig", anki_id=99999, file_path="/vault/a.md",
+                   line_number=5, note_type="Code",
+                   field_1="<code>T as U</code>", field_2="old back", deck_name="Default")
+        result = db.get_note_by_field_1_stripped("/vault/a.md", "Code", "<code>T as U</code>")
+        assert result is not None, "Stripped field_1 fallback failed"
+        assert result["anki_id"] == 99999
+
+
+class TestCoreField1:
+    """Unit tests for the _core_field_1 static stripping helper."""
+
+    def test_strips_file_stem(self):
+        f1 = "<p>Front</p><br><b>note-stem</b>"
+        assert NoteDB._core_field_1(f1) == "<p>Front</p>"
+
+    def test_strips_obsidian_link(self):
+        f1 = '<p>Front</p><br><a href="obsidian://open?vault=Work&amp;file=a.md" class="obsidian-link">Obsidian</a>'
+        assert NoteDB._core_field_1(f1) == "<p>Front</p>"
+
+    def test_strips_both_link_and_stem(self):
+        f1 = (
+            "<p>Front</p>"
+            '<br><a href="obsidian://open?vault=Work&amp;file=a.md" class="obsidian-link">Obsidian</a>'
+            "<br><b>stem</b>"
+        )
+        assert NoteDB._core_field_1(f1) == "<p>Front</p>"
+
+    def test_amp_and_ampamp_strip_to_same_core(self):
+        f1_amp = '<p>Q</p><br><a href="obsidian://open?vault=W&amp;file=a.md">Ob</a>'
+        f1_raw = '<p>Q</p><br><a href="obsidian://open?vault=W&file=a.md">Ob</a>'
+        assert NoteDB._core_field_1(f1_amp) == NoteDB._core_field_1(f1_raw) == "<p>Q</p>"
+
+    def test_none_returns_empty_string(self):
+        assert NoteDB._core_field_1(None) == ""
+
+    def test_empty_string_returns_empty_string(self):
+        assert NoteDB._core_field_1("") == ""
+
+    def test_no_suffixes_returned_unchanged(self):
+        assert NoteDB._core_field_1("<p>Plain</p>") == "<p>Plain</p>"
+
+
+class TestGetNoteByField1Stripped:
+    """Tests for the stripped field_1 lookup used as a last-resort fallback."""
+
+    def test_returns_unique_match(self, db):
+        _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Code",
+                   field_1="<code>T as U</code>", field_2="<p>Back</p>")
+        result = db.get_note_by_field_1_stripped("deck/a.md", "Code", "<code>T as U</code>")
+        assert result is not None
+        assert result["id"] == "u1"
+
+    def test_returns_none_when_no_match(self, db):
+        _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Code",
+                   field_1="<code>other</code>", field_2="<p>Back</p>")
+        assert db.get_note_by_field_1_stripped("deck/a.md", "Code", "<code>T as U</code>") is None
+
+    def test_returns_none_when_ambiguous(self, db):
+        """Two notes with same stripped field_1 → ambiguous → None (don't guess)."""
+        _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Code",
+                   field_1="<code>T</code>", field_2="<p>Back1</p>", line_number=1)
+        _make_note(db, uuid="u2", file_path="deck/a.md", note_type="Code",
+                   field_1="<code>T</code>", field_2="<p>Back2</p>", line_number=2)
+        assert db.get_note_by_field_1_stripped("deck/a.md", "Code", "<code>T</code>") is None
+
+    def test_strips_suffixes_on_stored_record(self, db):
+        """Stored field_1 with obsidian link + stem; lookup uses the stripped core."""
+        stored_f1 = (
+            "<code>T as U</code>"
+            '<br><a href="obsidian://open?vault=W&amp;file=a.md">Ob</a>'
+            "<br><b>stem</b>"
+        )
+        _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Code",
+                   field_1=stored_f1, field_2="<p>Back</p>")
+        result = db.get_note_by_field_1_stripped("deck/a.md", "Code", "<code>T as U</code>")
+        assert result is not None
+        assert result["id"] == "u1"
+
+    def test_amp_and_ampamp_resolve_to_same_record(self, db):
+        """Old record encoded & in URL; new scan encodes &amp; — both strip to same core."""
+        f1_old_enc = '<p>Q</p><br><a href="obsidian://open?vault=W&file=a.md">Ob</a>'
+        _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Basic",
+                   field_1=f1_old_enc, field_2="<p>Back</p>")
+        result = db.get_note_by_field_1_stripped("deck/a.md", "Basic", "<p>Q</p>")
+        assert result is not None
+        assert result["id"] == "u1"
+
+    def test_scoped_by_note_type(self, db):
+        _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Code",
+                   field_1="<code>Q</code>", field_2="<p>Back</p>")
+        assert db.get_note_by_field_1_stripped("deck/a.md", "Basic", "<code>Q</code>") is None
+
+    def test_scoped_by_file_path(self, db):
+        _make_note(db, uuid="u1", file_path="deck/a.md", note_type="Code",
+                   field_1="<code>Q</code>", field_2="<p>Back</p>")
+        assert db.get_note_by_field_1_stripped("deck/b.md", "Code", "<code>Q</code>") is None
+
+
+class TestDedupByField1:
+    """Tests for ghost-record deduplication by stripped field_1."""
+
+    def _stamp(self, db, uuid, ts):
+        """Directly set updated_at to control ordering."""
+        db._conn.execute("UPDATE notes SET updated_at = ? WHERE id = ?", (ts, uuid))
+        db._conn.commit()
+
+    def test_merges_ghost_valid_anki_id_with_current_correct_field_2(self, db):
+        """Core scenario: ghost has valid anki_id but stale field_2; current has
+        correct field_2 but stale anki_id. Keeper = valid-anki_id record;
+        its field_2 and line_number are updated from the more recent record."""
+        _make_anki_note(db, anki_id=9001, field_1="<code>x</code>", field_2="old = #tag")
+
+        shared_f1 = "<code>x</code>"
+        _make_note(db, uuid="ghost", anki_id=9001, file_path="a.md", note_type="Code",
+                   line_number=53, field_1=shared_f1, field_2="old = #tag")
+        _make_note(db, uuid="current", anki_id=7777, file_path="a.md", note_type="Code",
+                   line_number=52, field_1=shared_f1, field_2="correct content")
+
+        self._stamp(db, "ghost",   "2026-01-01T00:00:00+00:00")
+        self._stamp(db, "current", "2026-06-01T00:00:00+00:00")
+
+        db._dedup_by_field_1()
+
+        assert db.get_note("current") is None
+        kept = db.get_note("ghost")
+        assert kept["anki_id"] == 9001
+        assert kept["field_2"] == "correct content"
+        assert kept["line_number"] == 52
+
+    def test_merges_same_anki_id_keeps_most_recent(self, db):
+        """Two records share the same anki_id (same stripped field_1).
+        The most recently updated record is kept."""
+        _make_anki_note(db, anki_id=9002)
+
+        shared_f1 = "<code>T as U</code>"
+        _make_note(db, uuid="old-scan", anki_id=9002, file_path="b.md", note_type="Code",
+                   line_number=50, field_1=shared_f1, field_2="old back")
+        _make_note(db, uuid="new-scan", anki_id=9002, file_path="b.md", note_type="Code",
+                   line_number=49, field_1=shared_f1, field_2="new back")
+
+        self._stamp(db, "old-scan", "2026-01-01T00:00:00+00:00")
+        self._stamp(db, "new-scan", "2026-06-01T00:00:00+00:00")
+
+        db._dedup_by_field_1()
+
+        assert db.get_note("old-scan") is None
+        kept = db.get_note("new-scan")
+        assert kept["field_2"] == "new back"
+        assert kept["line_number"] == 49
+
+    def test_no_dedup_across_different_files(self, db):
+        """Same stripped field_1 in different files → distinct notes, no merge."""
+        _make_note(db, uuid="a", anki_id=None, file_path="a.md", note_type="Code",
+                   field_1="<code>Q</code>", field_2="<p>A</p>", line_number=1)
+        _make_note(db, uuid="b", anki_id=None, file_path="b.md", note_type="Code",
+                   field_1="<code>Q</code>", field_2="<p>A</p>", line_number=1)
+        db._dedup_by_field_1()
+        assert db.get_note("a") is not None
+        assert db.get_note("b") is not None
+
+    def test_no_dedup_across_different_note_types(self, db):
+        """Same stripped field_1 but different note_type → distinct notes, no merge."""
+        _make_note(db, uuid="a", anki_id=None, file_path="a.md", note_type="Code",
+                   field_1="<code>Q</code>", field_2="<p>A</p>", line_number=1)
+        _make_note(db, uuid="b", anki_id=None, file_path="a.md", note_type="Basic",
+                   field_1="<code>Q</code>", field_2="<p>A</p>", line_number=2)
+        db._dedup_by_field_1()
+        assert db.get_note("a") is not None
+        assert db.get_note("b") is not None
+
+    def test_returns_count_of_deleted_rows(self, db):
+        shared_f1 = "<code>x</code>"
+        _make_note(db, uuid="r1", anki_id=None, file_path="a.md", note_type="Code",
+                   field_1=shared_f1, field_2="<p>A</p>", line_number=1)
+        _make_note(db, uuid="r2", anki_id=None, file_path="a.md", note_type="Code",
+                   field_1=shared_f1, field_2="<p>B</p>", line_number=2)
+        assert db._dedup_by_field_1() == 1
+
+    def test_single_record_untouched(self, db):
+        _make_note(db, uuid="solo", anki_id=9003, file_path="a.md", note_type="Code",
+                   field_1="<code>Q</code>", field_2="<p>A</p>")
+        db._dedup_by_field_1()
+        assert db.get_note("solo") is not None
+
+    def test_note_comparison_shows_modify_after_dedup(self, db):
+        """Before dedup: ghost shows synced (matching Anki's stale field_2).
+        After dedup: ghost promoted to correct field_2 → modify_field_2."""
+        _make_anki_note(db, anki_id=9004, field_1="<p>Q</p>", field_2="old back",
+                        deck_name="Default")
+
+        shared_f1 = "<p>Q</p>"
+        _make_note(db, uuid="ghost", anki_id=9004, file_path="c.md", note_type="Basic",
+                   line_number=20, field_1=shared_f1, field_2="old back", deck_name="Default")
+        _make_note(db, uuid="current", anki_id=None, file_path="c.md", note_type="Basic",
+                   line_number=19, field_1=shared_f1, field_2="new back", deck_name="Default")
+
+        self._stamp(db, "ghost",   "2026-01-01T00:00:00+00:00")
+        self._stamp(db, "current", "2026-06-01T00:00:00+00:00")
+
+        before = db.get_comparison_rows(exclude_synced=False)
+        ghost_row = next(r for r in before if r.get("anki_id") == 9004)
+        assert ghost_row["status"] == "synced"
+
+        db._dedup_by_field_1()
+
+        after = db.get_comparison_rows(exclude_synced=True)
+        updated = next((r for r in after if r.get("anki_id") == 9004), None)
+        assert updated is not None
+        assert updated["status"] == "modify_field_2"
+
+    def test_dedup_matches_despite_amp_encoding_difference(self, db):
+        """Records with & vs &amp; in obsidian URL share the same stripped field_1
+        and should be deduped as one note."""
+        _make_anki_note(db, anki_id=9005)
+
+        f1_raw_amp = '<code>Q</code><br><a href="obsidian://open?vault=W&file=a.md">Ob</a>'
+        f1_html_amp = '<code>Q</code><br><a href="obsidian://open?vault=W&amp;file=a.md">Ob</a>'
+
+        _make_note(db, uuid="old-enc", anki_id=9005, file_path="d.md", note_type="Code",
+                   line_number=10, field_1=f1_raw_amp, field_2="old back")
+        _make_note(db, uuid="new-enc", anki_id=None, file_path="d.md", note_type="Code",
+                   line_number=9, field_1=f1_html_amp, field_2="new back")
+
+        self._stamp(db, "old-enc", "2026-01-01T00:00:00+00:00")
+        self._stamp(db, "new-enc", "2026-06-01T00:00:00+00:00")
+
+        db._dedup_by_field_1()
+
+        assert db.get_note("new-enc") is None
+        kept = db.get_note("old-enc")
+        assert kept["field_2"] == "new back"

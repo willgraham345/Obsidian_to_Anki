@@ -94,13 +94,13 @@ class TestDirectory:
         mock_file1 = MagicMock()
         mock_file1.get_add_notes.return_value = "add_notes_req1"
         mock_file1.get_note_info.return_value = "note_info_req1"
-        mock_file1.get_update_fields.return_value = "update_fields_req1"
+        mock_file1.get_update_notes.return_value = "update_notes_req1"
         mock_file1.get_delete_notes.return_value = "delete_notes_req1"
 
         mock_file2 = MagicMock()
         mock_file2.get_add_notes.return_value = "add_notes_req2"
         mock_file2.get_note_info.return_value = "note_info_req2"
-        mock_file2.get_update_fields.return_value = "update_fields_req2"
+        mock_file2.get_update_notes.return_value = "update_notes_req2"
         mock_file2.get_delete_notes.return_value = "delete_notes_req2"
 
         directory = Directory("/mock/dir")
@@ -111,7 +111,7 @@ class TestDirectory:
         mock_anki_request.assert_has_calls([
             call("multi", actions=["add_notes_req1", "add_notes_req2"]),
             call("multi", actions=["note_info_req1", "note_info_req2"]),
-            call("multi", actions=["update_fields_req1", "update_fields_req2"]),
+            call("multi", actions=["update_notes_req1", "update_notes_req2"]),
             call("multi", actions=["delete_notes_req1", "delete_notes_req2"]),
             call("multi", actions=[mock_anki_request.return_value, mock_anki_request.return_value, mock_anki_request.return_value, mock_anki_request.return_value])
         ], any_order=True)
@@ -182,25 +182,18 @@ class TestDirectory:
         mock_scandir.return_value.__enter__.return_value = []
         mock_file1 = MagicMock()
         mock_file1.get_change_decks.return_value = "change_decks_req1"
-        mock_file1.get_clear_tags.return_value = "clear_tags_req1"
-        mock_file1.get_add_tags.return_value = "add_tags_req1"
 
         mock_file2 = MagicMock()
         mock_file2.get_change_decks.return_value = "change_decks_req2"
-        mock_file2.get_clear_tags.return_value = "clear_tags_req2"
-        mock_file2.get_add_tags.return_value = "add_tags_req2"
 
         directory = Directory("/mock/dir")
         directory.files = [mock_file1, mock_file2]
 
         result = directory.requests_2()
 
-        mock_anki_request.assert_has_calls([
-            call("multi", actions=["change_decks_req1", "change_decks_req2"]),
-            call("multi", actions=["clear_tags_req1", "clear_tags_req2"]),
-            call("multi", actions=["add_tags_req1", "add_tags_req2"]),
-            call("multi", actions=[mock_anki_request.return_value, mock_anki_request.return_value, mock_anki_request.return_value])
-        ], any_order=True)
+        mock_anki_request.assert_called_once_with(
+            "multi", actions=["change_decks_req1", "change_decks_req2"]
+        )
         assert result == mock_anki_request.return_value
 
     @patch('src.atomics.directory.os.getcwd', return_value="/mock/parent")

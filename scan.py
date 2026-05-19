@@ -37,7 +37,7 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from atomics import globals                          # noqa: E402
-from atomics.anki_connect import AnkiConnect         # noqa: E402
+from atomics.anki_connect import AnkiConnect, Action  # noqa: E402
 from atomics.config import Config                    # noqa: E402
 from atomics.db import NoteDB                        # noqa: E402
 from atomics.file import File                        # noqa: E402
@@ -305,7 +305,7 @@ def scan_anki(db: NoteDB) -> int:
     ac = AnkiConnect()
 
     try:
-        note_ids: list[int] = ac.invoke("findNotes", query="")
+        note_ids: list[int] = ac.invoke(Action.FIND_NOTES, query="")
     except (URLError, Exception) as exc:
         print(f"[anki] ERROR — cannot reach Anki: {exc}")
         print("[anki] Make sure Anki is running with AnkiConnect installed.")
@@ -318,7 +318,7 @@ def scan_anki(db: NoteDB) -> int:
     chunk_size = 50
     for i in range(0, len(note_ids), chunk_size):
         chunk = note_ids[i : i + chunk_size]
-        infos = ac.invoke("notesInfo", notes=chunk)
+        infos = ac.invoke(Action.NOTES_INFO, notes=chunk)
         all_notes.extend(infos)
 
     # Collect all card IDs to map notes → decks
@@ -333,7 +333,7 @@ def scan_anki(db: NoteDB) -> int:
     if all_card_ids:
         for i in range(0, len(all_card_ids), chunk_size):
             chunk = all_card_ids[i : i + chunk_size]
-            card_infos = ac.invoke("cardsInfo", cards=chunk)
+            card_infos = ac.invoke(Action.CARDS_INFO, cards=chunk)
             for ci in card_infos:
                 deck_map[ci["cardId"]] = ci.get("deckName", "")
 
@@ -477,12 +477,6 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
         elif status in ("modify_fields", "modify_field_1", "modify_field_2"):
             if (_plain(r.get("vault_field_1")) == _plain(r.get("anki_field_1"))
                     and _plain(r.get("vault_field_2")) == _plain(r.get("anki_field_2"))):
-                continue
-            # Corrupt link: vault and Anki content share < 50% similarity — bad anki_id.
-            if _content_ratio(r.get("vault_field_1"), r.get("anki_field_1")) < 0.5:
-                uuid = _lookup_uuid(db, r)
-                if uuid:
-                    db.set_state_and_action(uuid, "not_in_anki", None)
                 continue
             uuid = _lookup_uuid(db, r)
             fp = r.get("file_path")

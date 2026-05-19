@@ -2,14 +2,16 @@
 Execute pending Anki changes from the anki_diff table.
 
 Usage (from repo root):
-    uv run python write.py [--delete-orphans]
+    uv run python write.py [--dry-run] [--detail] [--delete-orphans]
 
-    --delete-orphans   Also delete orphaned Anki notes (operation='delete').
-                       Off by default.
+    --dry-run        Preview pending changes without connecting to Anki.
+    --detail         With --dry-run: show full field content (default: truncated).
+    --delete-orphans Also delete orphaned Anki notes (operation='delete').
+                     Off by default.
 
 Workflow:
     uv run python scan.py /vault --anki   # populate notes + anki_notes + anki_diff
-    uv run python show.py                 # preview pending changes
+    uv run python write.py --dry-run      # preview pending changes
     uv run python write.py                # push changes to Anki
 """
 
@@ -27,7 +29,7 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from atomics import globals          # noqa: E402
-from atomics.anki_connect import AnkiConnect  # noqa: E402
+from atomics.anki_connect import AnkiConnect, Action  # noqa: E402
 from atomics.config import Config    # noqa: E402
 from atomics.db import NoteDB        # noqa: E402
 from atomics.utils import strip_html # noqa: E402
@@ -77,12 +79,12 @@ def _resolve_model_fields(ac: AnkiConnect, entries: list[dict]) -> None:
     note_types: set[str] = set()
     for e in entries:
         nt = e.get("note_type")
-        if nt and e.get("operation") in ("add", "update", "relink"):
+        if nt and e.get("operation") in ("add", "update", "relink", "retype"):
             note_types.add(nt)
 
     for nt in note_types:
         try:
-            fields = ac.invoke("modelFieldNames", modelName=nt)
+            fields = ac.invoke(Action.MODEL_FIELD_NAMES, modelName=nt)
             if fields:
                 globals.FIELDS_DICT[nt] = fields
         except Exception:
@@ -155,6 +157,195 @@ def _parse_tags(raw) -> list:
         return []
 
 
+# ── Dry-run display ────────────────────────────────────────────────────────────
+
+def _plain(text: str | None, max_len: int = 80) -> str:
+    if not text:
+        return ""
+    plain = re.sub(r"<[^>]+>", "", text).replace("\n", " ").strip()
+    return (plain[:max_len] + "…") if len(plain) > max_len else plain
+
+
+def _field_names(note_type: str) -> tuple[str, str]:
+    names = globals.FIELDS_DICT.get(note_type) or _KNOWN_FIELDS.get(note_type)
+    if not names:
+        custom = globals.CONFIG_DATA.get("ATOMICS", {})
+        pattern = custom.get(note_type)
+        if pattern:
+            n = re.compile(pattern).groups
+            names = [f"Field {i + 1}" for i in range(n)]
+    names = names or ["Field 1", "Field 2"]
+    f2 = names[1] if len(names) > 1 else "Field 2"
+    return names[0], f2
+
+
+def _show_diff(label: str, vault_val, anki_val, max_len: int) -> None:
+    v = _plain(vault_val, max_len)
+    a = _plain(anki_val, max_len) if anki_val is not None else None
+    if a is None:
+        print(f"    {label:<10}  →  {v}")
+    elif v == a:
+        print(f"    {label:<10}  [=]  {v}")
+    else:
+        print(f"    {label}:")
+        print(f"      ←  {a}")
+        print(f"      →  {v}")
+
+
+def _show_delete_field(label: str, val, max_len: int) -> None:
+    print(f"    {label:<10}  ✕  {_plain(val, max_len)}")
+
+
+_DRY_OP_LABELS = {
+    "add":       "ADD",
+    "relink":    "RELINK",
+    "update":    "UPDATE",
+    "retype":    "RETYPE",
+    "move_deck": "MOVE DECK",
+    "delete":    "DELETE (orphan)",
+    "stale":     "STALE",
+}
+_DRY_OP_ORDER = ["add", "relink", "update", "retype", "move_deck", "delete", "stale"]
+
+
+def _dry_run(db: NoteDB, ac: AnkiConnect, delete_orphans: bool, detail: bool) -> None:
+    entries = db.get_diff_entries()
+    _resolve_model_fields(ac, entries)
+
+    by_op: dict[str, list[dict]] = {}
+    for e in entries:
+        by_op.setdefault(e["operation"], []).append(e)
+
+    total = sum(len(v) for v in by_op.values())
+    sep = "─" * 60
+    print(f"\n{sep}\nDRY RUN — no changes applied\n{sep}")
+    print(f"Pending ({total} total):")
+    for op in _DRY_OP_ORDER:
+        n = len(by_op.get(op, []))
+        if n:
+            print(f"  {_DRY_OP_LABELS[op]:20s}  {n:>4d}")
+
+    max_len = 120 if detail else 70
+
+    # Live-resolve relink entries via NOTES_INFO
+    relink_resolved: dict[int, dict | None] = {}
+    for e in by_op.get("relink", []):
+        anki_id = e.get("anki_id")
+        if not anki_id:
+            continue
+        try:
+            info = ac.invoke(Action.NOTES_INFO, notes=[anki_id])
+            relink_resolved[anki_id] = (
+                info[0] if (info and info[0] and info[0].get("noteId")) else None
+            )
+        except Exception:
+            relink_resolved[anki_id] = None
+
+    for op in _DRY_OP_ORDER:
+        group = by_op.get(op, [])
+        if not group:
+            continue
+        label = _DRY_OP_LABELS[op]
+        if op == "delete" and not delete_orphans:
+            label += "  — skipped (pass --delete-orphans to apply)"
+        print(f"\n{sep}\n{label} ({len(group)})\n{sep}")
+
+        for e in group:
+            note_type = e.get("note_type") or "Unknown"
+            anki_id   = e.get("anki_id")
+            fp        = e.get("file_path") or ""
+            deck      = e.get("deck_name") or ""
+            vault_f1  = e.get("field_1")
+            vault_f2  = e.get("field_2")
+            f1_lbl, f2_lbl = _field_names(note_type)
+
+            # Header
+            parts = [f"  [{note_type}]"]
+            if anki_id:
+                suffix = " (not found in Anki)" if (
+                    op == "relink" and relink_resolved.get(anki_id) is None
+                ) else ""
+                parts.append(f"  anki:{anki_id}{suffix}")
+            if fp:
+                parts.append(f"  ←  {fp}" if anki_id else f"  {fp}")
+            print("".join(parts))
+
+            # Action
+            if op == "add":
+                print(f"    ▶ {Action.ADD_NOTE}")
+            elif op == "update":
+                print(f"    ▶ {Action.UPDATE_NOTE_FIELDS}")
+            elif op == "relink":
+                if relink_resolved.get(anki_id) is not None:
+                    print(f"    ▶ {Action.NOTES_INFO} → {Action.UPDATE_NOTE_FIELDS}")
+                else:
+                    print(f"    ▶ {Action.NOTES_INFO} → {Action.ADD_NOTE}")
+            elif op == "retype":
+                print(f"    ▶ {Action.DELETE_NOTES} → {Action.ADD_NOTE} [{note_type}]")
+            elif op == "move_deck":
+                print(f"    ▶ {Action.CHANGE_DECK}")
+            elif op in ("delete", "stale"):
+                flag = "" if delete_orphans else " (skipped)"
+                print(f"    ▶ {Action.DELETE_NOTES}{flag}")
+
+            # Deck
+            if deck:
+                if op == "move_deck":
+                    anki_note = db.get_anki_note(anki_id) if anki_id else None
+                    old_deck  = anki_note["deck_name"] if anki_note else "?"
+                    print(f"    deck:  {old_deck} → {deck}")
+                else:
+                    print(f"    deck:  {deck}")
+
+            # Fields
+            if op == "add":
+                print(f"    {f1_lbl:<10}  →  {_plain(vault_f1, max_len)}")
+                if vault_f2 is not None:
+                    print(f"    {f2_lbl:<10}  →  {_plain(vault_f2, max_len)}")
+
+            elif op == "update":
+                anki_note = db.get_anki_note(anki_id) if anki_id else None
+                af1 = anki_note["field_1"] if anki_note else None
+                af2 = anki_note["field_2"] if anki_note else None
+                _show_diff(f1_lbl, vault_f1, af1, max_len)
+                if vault_f2 is not None or af2 is not None:
+                    _show_diff(f2_lbl, vault_f2, af2, max_len)
+
+            elif op == "relink":
+                note_data = relink_resolved.get(anki_id)
+                if note_data:
+                    ordered = sorted(
+                        note_data["fields"].items(), key=lambda kv: kv[1]["order"]
+                    )
+                    af1 = ordered[0][1]["value"] if ordered else None
+                    af2 = ordered[1][1]["value"] if len(ordered) > 1 else None
+                    _show_diff(f1_lbl, vault_f1, af1, max_len)
+                    if vault_f2 is not None or af2 is not None:
+                        _show_diff(f2_lbl, vault_f2, af2, max_len)
+                else:
+                    print(f"    {f1_lbl:<10}  →  {_plain(vault_f1, max_len)}")
+                    if vault_f2 is not None:
+                        print(f"    {f2_lbl:<10}  →  {_plain(vault_f2, max_len)}")
+
+            elif op in ("delete", "stale"):
+                anki_note = db.get_anki_note(anki_id) if anki_id else None
+                f1 = anki_note["field_1"] if anki_note else vault_f1
+                f2 = anki_note["field_2"] if anki_note else vault_f2
+                _show_delete_field(f1_lbl, f1, max_len)
+                if f2 is not None:
+                    _show_delete_field(f2_lbl, f2, max_len)
+
+            elif op == "retype":
+                anki_note = db.get_anki_note(anki_id) if anki_id else None
+                if anki_note:
+                    _show_delete_field(f1_lbl, anki_note["field_1"], max_len)
+                    if anki_note.get("field_2"):
+                        _show_delete_field(f2_lbl, anki_note["field_2"], max_len)
+                print(f"    {f1_lbl:<10}  →  {_plain(vault_f1, max_len)}")
+                if vault_f2 is not None:
+                    print(f"    {f2_lbl:<10}  →  {_plain(vault_f2, max_len)}")
+
+
 # ── Execute ────────────────────────────────────────────────────────────────────
 
 def _ensure_decks(ac: AnkiConnect, entries: list[dict]) -> None:
@@ -166,7 +357,7 @@ def _ensure_decks(ac: AnkiConnect, entries: list[dict]) -> None:
                 decks.add(d)
     for deck in decks:
         try:
-            ac.invoke("createDeck", deck=deck)
+            ac.invoke(Action.CREATE_DECK, deck=deck)
         except Exception as exc:
             print(f"[warn] createDeck {deck!r}: {exc}")
 
@@ -190,19 +381,51 @@ def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
     for entry in relink_entries:
         anki_id  = entry.get("anki_id")
         entry_id = entry["id"]
-        if anki_id:
+
+        if not anki_id:
+            add_entries.append(entry)
+            continue
+
+        # Block 1: check if note still exists in Anki
+        info = None
+        try:
+            info = ac.invoke(Action.NOTES_INFO, notes=[anki_id])
+        except Exception as exc:
+            results["errors"].append(f"notesInfo (relink id={anki_id}): {exc}")
+            continue  # can't verify — leave diff entry in place
+
+        note_data = info[0] if (info and info[0] and info[0].get("noteId")) else None
+
+        if note_data:
+            # Block 2: update in place if content differs
             try:
-                info = ac.invoke("notesInfo", notes=[anki_id])
-                if info and info[0].get("noteId"):
-                    db.mark_synced(entry_id, anki_id)
-                    db.clear_recommended_action(entry_id)
-                    db.delete_diff_entry(entry_id)
-                    results["relinked"] += 1
-                    continue
-            except Exception:
-                pass
-        # Note gone from Anki — add as new card
-        add_entries.append(entry)
+                ordered = sorted(
+                    note_data.get("fields", {}).items(),
+                    key=lambda kv: kv[1]["order"],
+                )
+                anki_f1 = ordered[0][1]["value"] if ordered else None
+                anki_f2 = ordered[1][1]["value"] if len(ordered) > 1 else None
+                vault_f1 = entry.get("field_1")
+                vault_f2 = entry.get("field_2")
+                if vault_f1 != anki_f1 or vault_f2 != anki_f2:
+                    field_names = [name for name, _ in ordered]
+                    fields = {}
+                    if field_names and vault_f1 is not None:
+                        fields[field_names[0]] = vault_f1
+                    if len(field_names) > 1 and vault_f2 is not None:
+                        fields[field_names[1]] = vault_f2
+                    ac.invoke(Action.UPDATE_NOTE_FIELDS, note={"id": anki_id, "fields": fields})
+                    db.update_anki_note_fields(anki_id, vault_f1, vault_f2)
+                db.mark_synced(entry_id, anki_id)
+                db.clear_recommended_action(entry_id)
+                db.delete_diff_entry(entry_id)
+                results["relinked"] += 1
+            except Exception as exc:
+                results["errors"].append(f"relink update (id={anki_id}): {exc}")
+                # Note exists — do NOT promote to add
+        else:
+            # Note truly gone from Anki — safe to re-add
+            add_entries.append(entry)
 
     _ensure_decks(ac, add_entries)
 
@@ -213,7 +436,7 @@ def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
         fields    = _field_map(note_type, entry.get("field_1"), entry.get("field_2"))
         tags      = _parse_tags(entry.get("tags"))
         try:
-            new_id = ac.invoke("addNote", note={
+            new_id = ac.invoke(Action.ADD_NOTE, note={
                 "deckName":  deck_name,
                 "modelName": note_type,
                 "fields":    fields,
@@ -247,14 +470,14 @@ def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
         note_type = entry.get("note_type", "")
         fields    = _field_map(note_type, entry.get("field_1"), entry.get("field_2"))
         try:
-            ac.invoke("updateNoteFields", note={"id": anki_id, "fields": fields})
+            ac.invoke(Action.UPDATE_NOTE_FIELDS, note={"id": anki_id, "fields": fields})
             db.update_anki_note_fields(anki_id, entry.get("field_1"), entry.get("field_2"))
             deck_name = entry.get("deck_name")
             if deck_name:
-                note_info = ac.invoke("notesInfo", notes=[anki_id])
-                card_ids = note_info[0].get("cards", []) if note_info else []
+                note_info = ac.invoke(Action.NOTES_INFO, notes=[anki_id])
+                card_ids = note_info[0].get("cards", []) if note_info and note_info[0] else []
                 if card_ids:
-                    ac.invoke("changeDeck", cards=card_ids, deck=deck_name)
+                    ac.invoke(Action.CHANGE_DECK, cards=card_ids, deck=deck_name)
             db.clear_recommended_action(entry["id"])
             db.delete_diff_entry(entry["id"])
             results["updated"] += 1
@@ -273,8 +496,8 @@ def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
         tags        = _parse_tags(entry.get("tags"))
         try:
             if old_anki_id:
-                ac.invoke("deleteNotes", notes=[old_anki_id])
-            new_id = ac.invoke("addNote", note={
+                ac.invoke(Action.DELETE_NOTES, notes=[old_anki_id])
+            new_id = ac.invoke(Action.ADD_NOTE, note={
                 "deckName":  deck_name,
                 "modelName": note_type,
                 "fields":    fields,
@@ -296,10 +519,10 @@ def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
         if not anki_id or not deck_name:
             continue
         try:
-            note_info = ac.invoke("notesInfo", notes=[anki_id])
-            card_ids = note_info[0].get("cards", []) if note_info else []
+            note_info = ac.invoke(Action.NOTES_INFO, notes=[anki_id])
+            card_ids = note_info[0].get("cards", []) if note_info and note_info[0] else []
             if card_ids:
-                ac.invoke("changeDeck", cards=card_ids, deck=deck_name)
+                ac.invoke(Action.CHANGE_DECK, cards=card_ids, deck=deck_name)
             db.clear_recommended_action(entry["id"])
             db.delete_diff_entry(entry["id"])
             results["deck_changed"] += 1
@@ -310,7 +533,7 @@ def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
     if orphan_ids:
         if delete_orphans:
             try:
-                ac.invoke("deleteNotes", notes=orphan_ids)
+                ac.invoke(Action.DELETE_NOTES, notes=orphan_ids)
                 for e in orphan_entries:
                     db.delete_diff_entry(e["id"])
                 results["deleted"] += len(orphan_ids)
@@ -329,10 +552,21 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="write",
         description=(
             "Execute pending Anki changes from the anki_diff table.\n\n"
-            "Run scan.py first to populate the diff table, then show.py to\n"
-            "preview, then this script to apply."
+            "Run scan.py first to populate the diff table, then use --dry-run\n"
+            "to preview, then run without flags to apply."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--dry-run", "-n",
+        action="store_true",
+        dest="dry_run",
+        help="Preview what write will do without applying any changes (requires Anki running).",
+    )
+    parser.add_argument(
+        "--detail",
+        action="store_true",
+        help="With --dry-run: show full field content (default: truncated at 70 chars).",
     )
     parser.add_argument(
         "--delete-orphans",
@@ -355,6 +589,21 @@ def main() -> None:
         db.close()
         return
 
+    print("\nConnecting to Anki…")
+    try:
+        ac = AnkiConnect()
+        ac.invoke(Action.VERSION)
+    except (URLError, Exception) as exc:
+        print(f"ERROR — cannot reach Anki: {exc}")
+        print("Make sure Anki is running with AnkiConnect installed.")
+        db.close()
+        sys.exit(1)
+
+    if args.dry_run:
+        _dry_run(db, ac, delete_orphans=args.delete_orphans, detail=args.detail)
+        db.close()
+        return
+
     total = sum(r["n"] for r in summary)
     print("Pending changes:")
     for row in summary:
@@ -364,16 +613,6 @@ def main() -> None:
     orphan_count = next((r["n"] for r in summary if r["operation"] == "delete"), 0)
     if orphan_count and not args.delete_orphans:
         print(f"\n[warn] {orphan_count} orphan(s) queued for deletion — pass --delete-orphans to apply them")
-
-    print("\nConnecting to Anki…")
-    try:
-        ac = AnkiConnect()
-        ac.invoke("version")
-    except (URLError, Exception) as exc:
-        print(f"ERROR — cannot reach Anki: {exc}")
-        print("Make sure Anki is running with AnkiConnect installed.")
-        db.close()
-        sys.exit(1)
 
     entries = db.get_diff_entries()
     _resolve_model_fields(ac, entries)

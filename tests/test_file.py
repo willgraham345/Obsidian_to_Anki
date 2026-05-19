@@ -52,7 +52,7 @@ class TestFile:
         globals.CONFIG_DATA["Vault"] = "VaultName"
         globals.VAULT_PATH_REGEXP = re.compile(r"VaultName/(.*)")
         file_instance = File("file.md")
-        assert file_instance.url == "obsidian://open?vault=VaultName&file=sub/file.md"
+        assert file_instance.url == "obsidian://open?vault=VaultName&amp;file=sub/file.md"
 
     def test_hash_property(self):
         file_instance = File("dummy.md")
@@ -275,15 +275,16 @@ class TestFile:
         assert result == mock_anki_request.return_value
 
     @patch('src.atomics.file.AnkiConnect.request')
-    def test_get_update_fields(self, mock_anki_request):
+    def test_get_update_notes(self, mock_anki_request):
         file_instance = File("dummy.md")
-        mock_parsed1 = MagicMock(id=1, note={"fields": {"F1": "V1"}, "audio": []})
-        mock_parsed2 = MagicMock(id=2, note={"fields": {"F2": "V2"}, "audio": []})
+        mock_parsed1 = MagicMock(id=1, note={"fields": {"F1": "V1"}, "audio": [], "tags": ["t1"]})
+        mock_parsed2 = MagicMock(id=2, note={"fields": {"F2": "V2"}, "audio": [], "tags": ["t2"]})
         file_instance.notes_to_edit = [mock_parsed1, mock_parsed2]
-        result = file_instance.get_update_fields()
+        file_instance.global_tags = "global_tag"
+        result = file_instance.get_update_notes()
         mock_anki_request.assert_has_calls([
-            call("updateNoteFields", note={"id": 1, "fields": {"F1": "V1"}, "audio": []}),
-            call("updateNoteFields", note={"id": 2, "fields": {"F2": "V2"}, "audio": []}),
+            call("updateNote", note={"id": 1, "fields": {"F1": "V1"}, "tags": ["t1", "global_tag"], "audio": []}),
+            call("updateNote", note={"id": 2, "fields": {"F2": "V2"}, "tags": ["t2", "global_tag"], "audio": []}),
             call("multi", actions=[mock_anki_request.return_value, mock_anki_request.return_value])
         ], any_order=True)
         assert result == mock_anki_request.return_value
@@ -314,32 +315,6 @@ class TestFile:
         file_instance.target_deck = "MyDeck"
         result = file_instance.get_change_decks()
         mock_anki_request.assert_called_once_with("changeDeck", cards=["cardA", "cardB"], deck="MyDeck")
-        assert result == mock_anki_request.return_value
-
-    @patch('src.atomics.file.AnkiConnect.request')
-    def test_get_clear_tags(self, mock_anki_request):
-        file_instance = File("dummy.md")
-        mock_parsed1 = MagicMock(id=1)
-        mock_parsed2 = MagicMock(id=2)
-        file_instance.notes_to_edit = [mock_parsed1, mock_parsed2]
-        file_instance.tags = ["existing_tag1", "existing_tag2"]
-        result = file_instance.get_clear_tags()
-        mock_anki_request.assert_called_once_with("removeTags", notes=[1, 2], tags="existing_tag1 existing_tag2")
-        assert result == mock_anki_request.return_value
-
-    @patch('src.atomics.file.AnkiConnect.request')
-    def test_get_add_tags(self, mock_anki_request):
-        file_instance = File("dummy.md")
-        mock_parsed1 = MagicMock(id=1, note={"tags": ["new_tag1"]})
-        mock_parsed2 = MagicMock(id=2, note={"tags": ["new_tag2", "new_tag3"]})
-        file_instance.notes_to_edit = [mock_parsed1, mock_parsed2]
-        file_instance.global_tags = "global_tag"
-        result = file_instance.get_add_tags()
-        mock_anki_request.assert_has_calls([
-            call("addTags", notes=[1], tags="new_tag1 global_tag"),
-            call("addTags", notes=[2], tags="new_tag2 new_tag3 global_tag"),
-            call("multi", actions=[mock_anki_request.return_value, mock_anki_request.return_value])
-        ], any_order=True)
         assert result == mock_anki_request.return_value
 
 

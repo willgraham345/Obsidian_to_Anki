@@ -12,9 +12,10 @@ import urllib.parse
 _regex_cache: dict[str, tuple] = {}
 
 from . import globals
+from .globals import NoteAction, NoteState
 from .note import RegexNote
 from .utils import findignore, spans
-from .anki_connect import AnkiConnect
+from .anki_connect import AnkiConnect, Action
 
 _IMG_SRC_RE = re.compile(r'<img[^>]+src="([^"]+)"')
 _STEM_RE = re.compile(r'<br><b>.*?</b>\s*$', re.DOTALL)
@@ -47,6 +48,16 @@ def _db_upsert_note(parsed, file_path: str, line_number: int) -> str:
     if existing is None:
         existing = db.get_note_by_content(
             file_path, parsed.note["modelName"], field_1, field_2, parsed.note["deckName"]
+        )
+    if existing is None:
+        # field_2 changed AND line shifted → locate by stripped field_1 alone
+        f1_core = field_1 or ""
+        idx = f1_core.find('<br><b>')
+        f1_core = f1_core[:idx] if idx >= 0 else f1_core
+        idx = f1_core.find('<br><a href="obsidian://')
+        f1_core = f1_core[:idx] if idx >= 0 else f1_core
+        existing = db.get_note_by_field_1_stripped(
+            file_path, parsed.note["modelName"], f1_core
         )
     note_uuid = existing["id"] if existing else str(uuid_module.uuid4())
     existing_anki_id = existing["anki_id"] if existing else None
@@ -89,7 +100,7 @@ class File:
             self.url = (
                 "obsidian://open?vault="
                 + urllib.parse.quote(vault_name, safe="")
-                + "&file="
+                + "&amp;file="
                 + urllib.parse.quote(vault_rel, safe="/")
             )
         else:
@@ -169,6 +180,7 @@ class File:
             return parsed
         if existing["anki_id"] not in globals.EXISTING_IDS:
             return parsed
+
         field_names = list(parsed.note["fields"].keys())
         new_f1 = _strip_stem(parsed.note["fields"].get(field_names[0]) if field_names else None)
         new_f2 = parsed.note["fields"].get(field_names[1]) if len(field_names) > 1 else None
@@ -182,18 +194,18 @@ class File:
         file_path: str,
         line_no: int,
         note_uuid: str | None,
-    ) -> str:
+    ) -> NoteAction:
         """Compute diff state and recommended action for an atomic note.
 
-        Returns routing: 'add', 'edit', 'retype', 'link', 'review', 'skip'.
+        Returns routing: NoteAction.ADD/EDIT/RETYPE/LINK/REVIEW/SKIP.
         Writes state + recommended_action to DB. Appends to pending_review
-        for 'link' and 'review' outcomes.
+        for LINK and REVIEW outcomes.
         """
         db = globals.NOTE_DB
         if db is None or note_uuid is None:
             if parsed.id is not None and parsed.id in globals.EXISTING_IDS:
-                return 'edit'
-            return 'add'
+                return NoteAction.EDIT
+            return NoteAction.ADD
 
         field_names = list(parsed.note["fields"].keys())
         f1 = _strip_stem(parsed.note["fields"].get(field_names[0]) if field_names else None)
@@ -210,9 +222,8 @@ class File:
         if effective_id is not None:
             if effective_id not in globals.EXISTING_IDS:
                 candidates = db.similarity_search(f1, f2, parsed.note["modelName"])
-                state = "stale_id"
-                action = "link" if len(candidates) == 1 else "review"
-                db.set_state_and_action(note_uuid, state, action)
+                action = NoteAction.LINK if len(candidates) == 1 else NoteAction.REVIEW
+                db.set_state_and_action(note_uuid, NoteState.STALE_ID, action)
                 self.pending_review.append({
                     "uuid": note_uuid, "parsed": parsed,
                     "candidates": candidates, "file_path": file_path, "line_no": line_no,
@@ -223,7 +234,7 @@ class File:
                 "SELECT * FROM anki_notes WHERE anki_id = ?", (effective_id,)
             ).fetchone()
             if snap is None:
-                return 'edit'
+                return NoteAction.EDIT
 
             f1_anki = _strip_stem(snap["field_1"])
             f2_anki = snap["field_2"]
@@ -231,49 +242,49 @@ class File:
             f2_diff = f2 != f2_anki
 
             if parsed.note["modelName"] != snap["note_type"]:
-                db.set_state_and_action(note_uuid, "modify_type", "update_type")
-                return 'retype'
+                db.set_state_and_action(note_uuid, NoteState.MODIFY_TYPE, NoteAction.UPDATE_TYPE)
+                return NoteAction.RETYPE
             elif f1_diff and f2_diff:
-                db.set_state_and_action(note_uuid, "modify_fields", "update_fields")
+                db.set_state_and_action(note_uuid, NoteState.MODIFY_FIELDS, NoteAction.UPDATE_FIELDS)
             elif f1_diff:
-                db.set_state_and_action(note_uuid, "modify_field_1", "update_field_1")
+                db.set_state_and_action(note_uuid, NoteState.MODIFY_FIELD_1, NoteAction.UPDATE_FIELD_1)
             elif f2_diff:
-                db.set_state_and_action(note_uuid, "modify_field_2", "update_field_2")
+                db.set_state_and_action(note_uuid, NoteState.MODIFY_FIELD_2, NoteAction.UPDATE_FIELD_2)
             elif parsed.note["deckName"] != snap["deck_name"]:
-                db.set_state_and_action(note_uuid, "modify_deck", "update_deck")
+                db.set_state_and_action(note_uuid, NoteState.MODIFY_DECK, NoteAction.UPDATE_DECK)
             else:
-                db.set_state_and_action(note_uuid, "synced", "none")
-                return 'skip'
-            return 'edit'
+                db.set_state_and_action(note_uuid, NoteState.SYNCED, NoteAction.NONE)
+                return NoteAction.SKIP
+            return NoteAction.EDIT
 
         candidates = db.similarity_search(f1, f2, parsed.note["modelName"])
         if len(candidates) == 0:
-            db.set_state_and_action(note_uuid, "not_in_anki", "add")
-            return 'add'
-        action = "link" if len(candidates) == 1 else "review"
-        db.set_state_and_action(note_uuid, "not_in_anki", action)
+            db.set_state_and_action(note_uuid, NoteState.NOT_IN_ANKI, NoteAction.ADD)
+            return NoteAction.ADD
+        action = NoteAction.LINK if len(candidates) == 1 else NoteAction.REVIEW
+        db.set_state_and_action(note_uuid, NoteState.NOT_IN_ANKI, action)
         self.pending_review.append({
             "uuid": note_uuid, "parsed": parsed,
             "candidates": candidates, "file_path": file_path, "line_no": line_no,
         })
         return action
 
-    def _route_atomic(self, routing: str, parsed, note_uuid: str | None, match_end: int) -> None:
+    def _route_atomic(self, routing: NoteAction, parsed, note_uuid: str | None, match_end: int) -> None:
         """Route an atomic to the appropriate list based on _atomic_state_flow result."""
-        if routing == 'add':
+        if routing == NoteAction.ADD:
             self.notes_to_add.append(parsed.note)
             self.regex_id_indexes.append(match_end)
             self.uuid_for_regex_add.append(note_uuid)
-        elif routing == 'retype':
+        elif routing == NoteAction.RETYPE:
             self.notes_to_delete.append(parsed.id)
             self.notes_to_add.append(parsed.note)
             self.regex_id_indexes.append(match_end)
             self.uuid_for_regex_add.append(note_uuid)
-        elif routing == 'edit':
+        elif routing == NoteAction.EDIT:
             self.notes_to_edit.append(parsed)
-        elif routing == 'skip':
+        elif routing == NoteAction.SKIP:
             self.notes_skipped.append(parsed)
-        # 'link', 'review' → pending_review only (handled in Phase 4 interactive prompt)
+        # LINK, REVIEW → pending_review only (handled in Phase 4 interactive prompt)
 
     def scan_file(self):
         """Scan file for atomic (regex) notes and route to add/edit lists."""
@@ -380,30 +391,33 @@ class File:
     def get_add_notes(self):
         """Get the AnkiConnect-formatted request to add notes."""
         return AnkiConnect.request(
-            "multi",
+            Action.MULTI,
             actions=[
-                AnkiConnect.request("addNote", note=note)
+                AnkiConnect.request(Action.ADD_NOTE, note=note)
                 for note in self.notes_to_add
             ]
         )
 
     def get_delete_notes(self):
-        """Get the AnkiConnect-formatted request to delete a note."""
+        """Get the AnkiConnect-formatted request to delete notes."""
         return AnkiConnect.request(
-            "deleteNotes",
+            Action.DELETE_NOTES,
             notes=self.notes_to_delete
         )
 
-    def get_update_fields(self):
-        """Get the AnkiConnect-formatted request to update fields."""
+    def get_update_notes(self):
+        """Get the AnkiConnect-formatted request to atomically update fields and tags."""
         return AnkiConnect.request(
-            "multi",
+            Action.MULTI,
             actions=[
                 AnkiConnect.request(
-                    "updateNoteFields", note={
+                    Action.UPDATE_NOTE, note={
                         "id": parsed.id,
                         "fields": parsed.note["fields"],
-                        "audio": parsed.note["audio"]
+                        "tags": parsed.note["tags"] + [
+                            t for t in self.global_tags.split(globals.TAG_SEP) if t
+                        ],
+                        "audio": parsed.note["audio"],
                     }
                 )
                 for parsed in self.notes_to_edit
@@ -413,7 +427,7 @@ class File:
     def get_note_info(self):
         """Get the AnkiConnect-formatted request to get note info."""
         return AnkiConnect.request(
-            "notesInfo",
+            Action.NOTES_INFO,
             notes=[parsed.id for parsed in self.notes_to_edit]
         )
 
@@ -427,29 +441,7 @@ class File:
     def get_change_decks(self):
         """Get the AnkiConnect-formatted request to change decks."""
         return AnkiConnect.request(
-            "changeDeck",
+            Action.CHANGE_DECK,
             cards=self.cards,
             deck=self.target_deck
-        )
-
-    def get_clear_tags(self):
-        """Get the AnkiConnect-formatted request to clear tags."""
-        return AnkiConnect.request(
-            "removeTags",
-            notes=[parsed.id for parsed in self.notes_to_edit],
-            tags=" ".join(self.tags)
-        )
-
-    def get_add_tags(self):
-        """Get the AnkiConnect-formatted request to add tags."""
-        return AnkiConnect.request(
-            "multi",
-            actions=[
-                AnkiConnect.request(
-                    "addTags",
-                    notes=[parsed.id],
-                    tags=" ".join(parsed.note["tags"]) + " " + self.global_tags
-                )
-                for parsed in self.notes_to_edit
-            ]
         )

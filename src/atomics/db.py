@@ -123,13 +123,13 @@ class NoteDB:
                     WHEN (SELECT COUNT(*) FROM notes _n WHERE _n.anki_id = v.anki_id) > 1
                                                                     THEN 'synced'
                     WHEN v.note_type IS NOT a.note_type             THEN 'modify_type'
-                    WHEN (CASE WHEN INSTR(v.field_1,'<br><b>')>0 THEN SUBSTR(v.field_1,1,INSTR(v.field_1,'<br><b>')-1) ELSE v.field_1 END
+                    WHEN (REPLACE(CASE WHEN INSTR(v.field_1,'<br><b>')>0 THEN SUBSTR(v.field_1,1,INSTR(v.field_1,'<br><b>')-1) ELSE v.field_1 END,'&amp;','&')
                           IS NOT
-                          CASE WHEN INSTR(a.field_1,'<br><b>')>0 THEN SUBSTR(a.field_1,1,INSTR(a.field_1,'<br><b>')-1) ELSE a.field_1 END)
+                          REPLACE(CASE WHEN INSTR(a.field_1,'<br><b>')>0 THEN SUBSTR(a.field_1,1,INSTR(a.field_1,'<br><b>')-1) ELSE a.field_1 END,'&amp;','&'))
                       AND (v.field_2 IS NOT a.field_2)             THEN 'modify_fields'
-                    WHEN CASE WHEN INSTR(v.field_1,'<br><b>')>0 THEN SUBSTR(v.field_1,1,INSTR(v.field_1,'<br><b>')-1) ELSE v.field_1 END
+                    WHEN REPLACE(CASE WHEN INSTR(v.field_1,'<br><b>')>0 THEN SUBSTR(v.field_1,1,INSTR(v.field_1,'<br><b>')-1) ELSE v.field_1 END,'&amp;','&')
                          IS NOT
-                         CASE WHEN INSTR(a.field_1,'<br><b>')>0 THEN SUBSTR(a.field_1,1,INSTR(a.field_1,'<br><b>')-1) ELSE a.field_1 END
+                         REPLACE(CASE WHEN INSTR(a.field_1,'<br><b>')>0 THEN SUBSTR(a.field_1,1,INSTR(a.field_1,'<br><b>')-1) ELSE a.field_1 END,'&amp;','&')
                                                                     THEN 'modify_field_1'
                     WHEN v.field_2 IS NOT a.field_2                THEN 'modify_field_2'
                     WHEN v.deck_name IS NOT a.deck_name             THEN 'modify_deck'
@@ -194,6 +194,7 @@ class NoteDB:
             """)
 
         self._dedup_notes()
+        self._dedup_by_field_1()
         self._recover_anki_ids()
         self._conn.commit()
 
@@ -228,6 +229,77 @@ class NoteDB:
         if deleted:
             print(f"[db] Deduped {deleted} stale note record(s)")
         return deleted
+
+    @staticmethod
+    def _core_field_1(field_1: str | None) -> str:
+        """Strip obsidian backlink and file-stem suffix for stable identity comparison."""
+        if not field_1:
+            return ""
+        idx = field_1.find('<br><b>')
+        text = field_1[:idx] if idx >= 0 else field_1
+        idx = text.find('<br><a href="obsidian://')
+        return text[:idx] if idx >= 0 else text
+
+    def _dedup_by_field_1(self) -> int:
+        """Merge duplicate notes that share (file_path, note_type, stripped_field_1).
+
+        Ghost records accumulate when a note's field_2 and line number change
+        simultaneously: the scan creates a new record while the old one persists.
+        This pass merges them: keeps the record with a valid anki_id (exists in
+        anki_notes), promotes field_2 and line_number from the most recently
+        updated member, then deletes the rest.
+        Returns number of rows deleted.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM notes ORDER BY updated_at DESC"
+        ).fetchall()
+
+        valid_anki_ids: set[int] = {
+            r[0] for r in self._conn.execute("SELECT anki_id FROM anki_notes").fetchall()
+        }
+
+        groups: dict[tuple, list[dict]] = {}
+        for row in rows:
+            key = (row["file_path"], row["note_type"], self._core_field_1(row["field_1"]))
+            groups.setdefault(key, []).append(dict(row))
+
+        deleted = 0
+        for group in groups.values():
+            if len(group) <= 1:
+                continue
+
+            # group is sorted by updated_at DESC — group[0] has the most recent content
+            most_recent = group[0]
+
+            valid = [g for g in group if g["anki_id"] in valid_anki_ids]
+            keeper = valid[0] if valid else most_recent
+
+            if keeper["id"] != most_recent["id"]:
+                self._conn.execute(
+                    "UPDATE notes SET field_2 = ?, line_number = ?, updated_at = ? WHERE id = ?",
+                    (most_recent["field_2"], most_recent["line_number"], _now(), keeper["id"]),
+                )
+
+            for g in group:
+                if g["id"] != keeper["id"]:
+                    self._conn.execute("DELETE FROM notes WHERE id = ?", (g["id"],))
+                    deleted += 1
+
+        if deleted:
+            print(f"[db] Merged {deleted} ghost note record(s) by field_1 match")
+        return deleted
+
+    def get_note_by_field_1_stripped(
+        self, file_path: str, note_type: str, f1_stripped: str
+    ) -> dict | None:
+        """Return the unique note matching (file_path, note_type) whose stripped
+        field_1 equals f1_stripped. Returns None when 0 or >1 matches."""
+        rows = self._conn.execute(
+            "SELECT * FROM notes WHERE file_path = ? AND note_type = ?",
+            (file_path, note_type),
+        ).fetchall()
+        matches = [r for r in rows if self._core_field_1(r["field_1"]) == f1_stripped]
+        return dict(matches[0]) if len(matches) == 1 else None
 
     def _recover_anki_ids(self) -> int:
         """Link vault notes that lost their anki_id to matching Anki snapshot entries.
@@ -568,6 +640,12 @@ class NoteDB:
     # ------------------------------------------------------------------
     # Anki snapshot
     # ------------------------------------------------------------------
+
+    def get_anki_note(self, anki_id: int) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM anki_notes WHERE anki_id = ?", (anki_id,)
+        ).fetchone()
+        return dict(row) if row else None
 
     def upsert_anki_note(
         self,
