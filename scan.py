@@ -245,6 +245,12 @@ def run_vault_scan(vault_path: str, db: NoteDB, force: bool = False) -> tuple[in
                 add_atomic_id(filepath, db)
                 rf = File(filepath)
                 rf.scan_file()
+                if globals.NOTE_DB is not None and globals.CONFIG_DATA.get("ATOMICS"):
+                    fp_rel = rf._vault_rel_path()
+                    marked = db.mark_disappeared(fp_rel, rf.scanned_uuids)
+                    if marked:
+                        rel = os.path.relpath(filepath, vault_path)
+                        print(f"  {rel}: {marked} note(s) marked disappeared")
                 db.set_file_hash(filepath, current_hash)
             except Exception as exc:
                 print(f"  [WARN] {os.path.relpath(filepath, vault_path)}: {exc}")
@@ -445,6 +451,7 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
         "orphan": [],
         "modify_deck": [],
         "stale": [],
+        "prune": [],
     }
 
     for r in rows:
@@ -564,6 +571,21 @@ def build_diff(db: NoteDB, vault_path: str) -> dict:
             "field_1": n["field_1"], "file_path": n["file_path"],
         })
 
+    disappeared_notes = db.get_notes_by_state("disappeared")
+    for n in disappeared_notes:
+        if n.get("anki_id"):
+            db.upsert_diff_entry(
+                id=n["id"], operation="prune",
+                note_type=n["note_type"], deck_name=None,
+                field_1=n["field_1"], field_2=None,
+                tags=None, anki_id=n["anki_id"], file_path=n["file_path"],
+            )
+            diff["prune"].append({
+                "uuid": n["id"], "anki_id": n["anki_id"],
+                "note_type": n["note_type"],
+                "field_1": n["field_1"], "file_path": n["file_path"],
+            })
+
     return diff
 
 
@@ -647,7 +669,8 @@ def main() -> None:
             f"\n[diff] add={len(diff['add'])}, update={len(diff['update'])}, "
             f"retype={len(diff.get('retype', []))}, relink={len(diff['relink'])}, "
             f"move_deck={len(diff.get('modify_deck', []))}, "
-            f"delete={len(diff['orphan'])}, stale={len(diff['stale'])}  (total={total})"
+            f"delete={len(diff['orphan'])}, stale={len(diff['stale'])}, "
+            f"prune={len(diff.get('prune', []))}  (total={total})"
         )
         print("[diff] Pending changes written to anki_diff table. Run write.py to apply.")
 

@@ -120,6 +120,7 @@ class File:
         self.uuid_for_regex_add = []
         self.pending_review = []
         self.notes_skipped = []
+        self.scanned_uuids: set[str] = set()
 
     def setup_frozen_fields_dict(self):
         self.frozen_fields_dict = {
@@ -320,6 +321,8 @@ class File:
             file_path = self._vault_rel_path()
             line_no = self._line_of(match.start())
             note_uuid = _db_upsert_note(parsed, file_path, line_no)
+            if note_uuid is not None:
+                self.scanned_uuids.add(note_uuid)
             if globals.NOTE_DB is not None and note_uuid is None:
                 logging.warning("DB write failed for atomic at %s:%d — skipping", file_path, line_no)
                 continue
@@ -335,6 +338,8 @@ class File:
             file_path = self._vault_rel_path()
             line_no = self._line_of(match.start())
             note_uuid = _db_upsert_note(parsed, file_path, line_no)
+            if note_uuid is not None:
+                self.scanned_uuids.add(note_uuid)
             if globals.NOTE_DB is not None and note_uuid is None:
                 logging.warning("DB write failed for atomic at %s:%d — skipping", file_path, line_no)
                 continue
@@ -354,6 +359,8 @@ class File:
             file_path = self._vault_rel_path()
             line_no = self._line_of(match.start())
             note_uuid = _db_upsert_note(parsed, file_path, line_no)
+            if note_uuid is not None:
+                self.scanned_uuids.add(note_uuid)
             if globals.NOTE_DB is not None and note_uuid is None:
                 logging.warning("DB write failed for atomic at %s:%d — skipping", file_path, line_no)
                 continue
@@ -373,6 +380,8 @@ class File:
             file_path = self._vault_rel_path()
             line_no = self._line_of(match.start())
             note_uuid = _db_upsert_note(parsed, file_path, line_no)
+            if note_uuid is not None:
+                self.scanned_uuids.add(note_uuid)
             if globals.NOTE_DB is not None and note_uuid is None:
                 logging.warning("DB write failed for atomic at %s:%d — skipping", file_path, line_no)
                 continue

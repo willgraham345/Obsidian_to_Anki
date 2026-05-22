@@ -204,11 +204,12 @@ _DRY_OP_LABELS = {
     "move_deck": "MOVE DECK",
     "delete":    "DELETE (orphan)",
     "stale":     "STALE",
+    "prune":     "PRUNE (disappeared)",
 }
-_DRY_OP_ORDER = ["add", "relink", "update", "retype", "move_deck", "delete", "stale"]
+_DRY_OP_ORDER = ["add", "relink", "update", "retype", "move_deck", "delete", "stale", "prune"]
 
 
-def _dry_run(db: NoteDB, ac: AnkiConnect, delete_orphans: bool, detail: bool) -> None:
+def _dry_run(db: NoteDB, ac: AnkiConnect, delete_orphans: bool, detail: bool, prune_removed: bool = False) -> None:
     entries = db.get_diff_entries()
     _resolve_model_fields(ac, entries)
 
@@ -248,6 +249,8 @@ def _dry_run(db: NoteDB, ac: AnkiConnect, delete_orphans: bool, detail: bool) ->
         label = _DRY_OP_LABELS[op]
         if op == "delete" and not delete_orphans:
             label += "  — skipped (pass --delete-orphans to apply)"
+        if op == "prune" and not prune_removed:
+            label += "  — skipped (pass --prune-removed to apply)"
         print(f"\n{sep}\n{label} ({len(group)})\n{sep}")
 
         for e in group:
@@ -284,8 +287,13 @@ def _dry_run(db: NoteDB, ac: AnkiConnect, delete_orphans: bool, detail: bool) ->
                 print(f"    ▶ {Action.DELETE_NOTES} → {Action.ADD_NOTE} [{note_type}]")
             elif op == "move_deck":
                 print(f"    ▶ {Action.CHANGE_DECK}")
-            elif op in ("delete", "stale"):
+            elif op == "delete":
                 flag = "" if delete_orphans else " (skipped)"
+                print(f"    ▶ {Action.DELETE_NOTES}{flag}")
+            elif op == "stale":
+                print(f"    ▶ {Action.DELETE_NOTES} (skipped)")
+            elif op == "prune":
+                flag = "" if prune_removed else " (skipped)"
                 print(f"    ▶ {Action.DELETE_NOTES}{flag}")
 
             # Deck
@@ -362,11 +370,11 @@ def _ensure_decks(ac: AnkiConnect, entries: list[dict]) -> None:
             print(f"[warn] createDeck {deck!r}: {exc}")
 
 
-def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
+def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False, prune_removed: bool = False) -> dict:
     entries = db.get_diff_entries()
     results = {
         "added": 0, "updated": 0, "re_typed": 0, "relinked": 0,
-        "reconciled": 0, "deleted": 0, "deck_changed": 0, "errors": [],
+        "reconciled": 0, "deleted": 0, "pruned": 0, "deck_changed": 0, "errors": [],
     }
 
     add_entries    = [e for e in entries if e["operation"] == "add"]
@@ -375,6 +383,7 @@ def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
     retype_entries = [e for e in entries if e["operation"] == "retype"]
     deck_entries   = [e for e in entries if e["operation"] == "move_deck"]
     orphan_entries = [e for e in entries if e["operation"] == "delete"]
+    prune_entries  = [e for e in entries if e["operation"] == "prune"]
 
     # Relink: verify stale anki_id against live Anki; reconnect if still exists,
     # else promote to add so review history is preserved when possible.
@@ -542,6 +551,21 @@ def execute(db: NoteDB, ac: AnkiConnect, delete_orphans: bool = False) -> dict:
         else:
             print(f"[warn] Skipped deletion of {len(orphan_ids)} orphan(s) — pass --delete-orphans to enable")
 
+    prune_ids = [e["anki_id"] for e in prune_entries if e.get("anki_id")]
+    if prune_ids:
+        if prune_removed:
+            try:
+                ac.invoke(Action.DELETE_NOTES, notes=prune_ids)
+                for e in prune_entries:
+                    db._conn.execute("DELETE FROM notes WHERE id = ?", (e["id"],))
+                    db.delete_diff_entry(e["id"])
+                db._conn.commit()
+                results["pruned"] += len(prune_ids)
+            except Exception as exc:
+                results["errors"].append(f"deleteNotes prune ({len(prune_ids)} notes): {exc}")
+        else:
+            print(f"[warn] Skipped pruning of {len(prune_ids)} disappeared note(s) — pass --prune-removed to enable")
+
     return results
 
 
@@ -574,6 +598,12 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="delete_orphans",
         help="Also delete orphaned Anki notes (operation='delete' in anki_diff).",
     )
+    parser.add_argument(
+        "--prune-removed",
+        action="store_true",
+        dest="prune_removed",
+        help="Delete Anki notes for vault notes marked disappeared and remove their DB entries.",
+    )
     return parser
 
 
@@ -600,7 +630,7 @@ def main() -> None:
         sys.exit(1)
 
     if args.dry_run:
-        _dry_run(db, ac, delete_orphans=args.delete_orphans, detail=args.detail)
+        _dry_run(db, ac, delete_orphans=args.delete_orphans, detail=args.detail, prune_removed=args.prune_removed)
         db.close()
         return
 
@@ -613,17 +643,21 @@ def main() -> None:
     orphan_count = next((r["n"] for r in summary if r["operation"] == "delete"), 0)
     if orphan_count and not args.delete_orphans:
         print(f"\n[warn] {orphan_count} orphan(s) queued for deletion — pass --delete-orphans to apply them")
+    prune_count = next((r["n"] for r in summary if r["operation"] == "prune"), 0)
+    if prune_count and not args.prune_removed:
+        print(f"\n[warn] {prune_count} disappeared note(s) queued — pass --prune-removed to apply them")
 
     entries = db.get_diff_entries()
     _resolve_model_fields(ac, entries)
 
-    results = execute(db, ac, delete_orphans=args.delete_orphans)
+    results = execute(db, ac, delete_orphans=args.delete_orphans, prune_removed=args.prune_removed)
     db.close()
 
     print(f"\nDone — added={results['added']}, updated={results['updated']}, "
           f"re_typed={results['re_typed']}, relinked={results['relinked']}, "
           f"reconciled={results['reconciled']}, "
-          f"deck_changed={results['deck_changed']}, deleted={results['deleted']}")
+          f"deck_changed={results['deck_changed']}, deleted={results['deleted']}, "
+          f"pruned={results['pruned']}")
     if results["errors"]:
         print(f"\nErrors ({len(results['errors'])}):")
         for err in results["errors"]:

@@ -685,6 +685,22 @@ class NoteDB:
         self._conn.execute("DELETE FROM anki_notes")
         self._conn.commit()
 
+    def mark_disappeared(self, file_path: str, seen_uuids: set[str]) -> int:
+        """Mark notes for file_path not seen in current scan as state='disappeared'.
+
+        Called after each file scan. Notes absent from seen_uuids were in the DB
+        from a prior scan but are no longer present in the file. Returns count marked.
+        """
+        if not file_path:
+            return 0
+        all_notes = self.get_notes_for_file(file_path)
+        marked = 0
+        for note in all_notes:
+            if note["id"] not in seen_uuids and note.get("state") != "disappeared":
+                self.set_state_and_action(note["id"], "disappeared", "review")
+                marked += 1
+        return marked
+
     def reconcile_orphans(self) -> int:
         """Match orphaned Anki notes to unlinked vault notes by field content.
 
