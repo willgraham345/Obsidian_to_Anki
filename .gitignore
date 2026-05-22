@@ -10,3 +10,4 @@ tests/__pycache__
 /anki_diff.json
 /anki_diff.md
 /atomics.log
+/atomics.db
