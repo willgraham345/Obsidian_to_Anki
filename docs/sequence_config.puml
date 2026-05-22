@@ -1,0 +1,151 @@
+@startuml sequence_config
+title Config Initialization — load_config() and update_config()
+
+participant App
+participant Config
+participant "configparser\n.ConfigParser" as CP
+participant AnkiConnect
+participant "Anki Desktop\n(port 8765)" as Anki
+participant globals
+
+' ─── Construction ─────────────────────────────────────────────────────────────
+
+== Config.__init__() ==
+
+App -> Config : Config()
+activate Config
+Config -> Config : CONFIG_PATH = …/atomics_config.ini\n(normpath relative to package dir)
+Config --> App : Config instance
+deactivate Config
+
+' ─── Load ─────────────────────────────────────────────────────────────────────
+
+== load_config() — reads .ini, populates globals ==
+
+App -> Config : load_config()
+activate Config
+
+Config -> CP : ConfigParser(optionxform=str)
+Config -> CP : read(CONFIG_PATH, encoding='utf-8-sig')
+CP --> Config : parsed config object
+
+Config -> Config : load_syntax(config)
+activate Config
+note right
+  Reads [Syntax] section (or fallbacks):
+  ─────────────────────────────────────
+  "Begin Note"         → NOTE_PREFIX  (regex-escaped)
+  "End Note"           → NOTE_SUFFIX
+  "Begin Inline Note"  → INLINE_PREFIX
+  "End Inline Note"    → INLINE_SUFFIX
+  "Target Deck Line"   → DECK_LINE
+  "File Tags Line"     → TAG_LINE
+  "Frozen Fields Line" → FROZEN_LINE
+  "Delete Note Line"   → compiled into
+    globals.EMPTY_REGEXP  (delete_line + ID_REGEXP_STR)
+    globals.CONFIG_DATA["EMPTY_REGEXP"]  (same pattern)
+end note
+Config -> globals : CONFIG_DATA["NOTE_PREFIX"] = …
+Config -> globals : CONFIG_DATA["NOTE_SUFFIX"] = …
+Config -> globals : CONFIG_DATA["INLINE_PREFIX"] = …
+Config -> globals : CONFIG_DATA["INLINE_SUFFIX"] = …
+Config -> globals : CONFIG_DATA["DECK_LINE"] = …
+Config -> globals : CONFIG_DATA["TAG_LINE"] = …
+Config -> globals : CONFIG_DATA["FROZEN_LINE"] = …
+Config -> globals : EMPTY_REGEXP = re.compile(delete_line + ID_REGEXP_STR)
+deactivate Config
+
+Config -> Config : load_defaults(config)
+activate Config
+note right
+  Reads [Defaults] and [Obsidian] sections:
+  ──────────────────────────────────────────
+  NOTE_DICT_TEMPLATE["tags"]     ← "Tag"    (default tag)
+  NOTE_DICT_TEMPLATE["deckName"] ← "Deck"
+
+  CONFIG_DATA keys set:
+  CurlyCloze    ← bool
+  Regex         ← bool
+  Comment       ← bool ("ID Comments")
+  Path          ← str  (Anki executable path)
+  Profile       ← str  (Anki profile name)
+  Vault         ← str  (vault path)
+  "Vault name"  ← str
+  "Add file link" ← bool
+end note
+Config -> globals : NOTE_DICT_TEMPLATE["tags"] = [default_tag]
+Config -> globals : NOTE_DICT_TEMPLATE["deckName"] = default_deck
+Config -> globals : CONFIG_DATA["CurlyCloze"] = …
+Config -> globals : CONFIG_DATA["Regex"] = …
+Config -> globals : CONFIG_DATA["Comment"] = …
+Config -> globals : CONFIG_DATA["Path"] = …
+Config -> globals : CONFIG_DATA["Profile"] = …
+Config -> globals : CONFIG_DATA["Vault"] = …
+Config -> globals : CONFIG_DATA["Vault name"] = …
+Config -> globals : CONFIG_DATA["Add file link"] = …
+deactivate Config
+
+Config -> Config : load_folder_decks(config)
+activate Config
+note right
+  Reads [Folder Decks] section.
+  Each key is a regex pattern; value is a deck name.
+  Compiles each pattern → (re.Pattern, deck_name) tuple.
+  Patterns matched against vault-relative file paths.
+end note
+loop for each (pattern, deck_name) in [Folder Decks]
+  Config -> Config : re.compile(pattern)
+end
+Config -> globals : CONFIG_DATA["FOLDER_DECKS"] = [(Pattern, deck_name), …]
+deactivate Config
+
+Config -> globals : CONFIG_DATA["CUSTOM_REGEXPS"] = config["Custom Regexps"]
+note right
+  Raw configparser section proxy — keys are note type names,
+  values are regex strings (empty string = disabled).
+end note
+
+Config -> globals : CONFIG_DATA["FILE_STEM_NOTES"] = {note_type: bool, …}
+note right
+  From [File Stem Notes] section.
+  If True for a note type, the file stem is appended to
+  field_1 as an HTML suffix (<br><b>file_stem</b>).
+end note
+
+Config --> App : (load complete)
+deactivate Config
+
+' ─── Update ───────────────────────────────────────────────────────────────────
+
+== update_config() — called on first run or with -u flag ==
+
+App -> Config : update_config()
+activate Config
+
+Config -> CP : ConfigParser(optionxform=str)
+alt config file exists
+  Config -> CP : read(CONFIG_PATH, encoding='utf-8-sig')
+end
+
+Config -> AnkiConnect : invoke("modelNames")
+activate AnkiConnect
+AnkiConnect -> Anki : HTTP POST — modelNames
+Anki --> AnkiConnect : ["Basic", "Cloze", "Term", …]
+AnkiConnect --> Config : note type list
+deactivate AnkiConnect
+
+loop for each note_type in note_types
+  Config -> CP : config["Custom Regexps"].setdefault(note_type, "")
+  Config -> CP : config["File Stem Notes"].setdefault(note_type, "False")
+end
+
+Config -> Config : setup_syntax(config)
+note right: Fills in [Syntax] section defaults\nif keys are missing
+Config -> Config : setup_defaults(config)
+note right: Fills in [Defaults] and [Obsidian]\ndefaults if keys are missing
+
+Config -> Config : write config to CONFIG_PATH (utf-8)
+Config --> App : (config updated on disk)
+deactivate Config
+
+@enduml

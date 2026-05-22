@@ -1,0 +1,111 @@
+@startuml sequence_sync
+title Writing and Syncing with Existing Anki Data
+
+participant App
+participant Directory
+participant File
+participant AnkiConnect
+participant "Anki Desktop\n(port 8765)" as Anki
+participant Data
+participant globals
+
+== Pre-Sync: Media Upload ==
+
+App -> AnkiConnect : invoke("getTags")
+activate AnkiConnect
+AnkiConnect -> Anki : HTTP POST — getTags
+Anki --> AnkiConnect : all existing tag names
+AnkiConnect --> App : tags list
+deactivate AnkiConnect
+
+loop for each file in globals.MEDIA (not in globals.ADDED_MEDIA)
+  App -> AnkiConnect : invoke("storeMediaFile",\n  filename=name, data=base64)
+  activate AnkiConnect
+  AnkiConnect -> Anki : HTTP POST — storeMediaFile
+  Anki --> AnkiConnect : filename confirmation
+  AnkiConnect --> App : stored filename
+  deactivate AnkiConnect
+end
+
+== Stage 1: Add / Edit / Delete Notes ==
+
+loop for each Directory
+  App -> Directory : requests_1()
+  activate Directory
+  loop for each File in directory
+    Directory -> File : get_add_notes()
+    note right: AnkiConnect "addNote" action\nfor each note in notes_to_add
+    Directory -> File : get_note_info()
+    note right: AnkiConnect "notesInfo" action\nfor each id in notes_to_edit
+    Directory -> File : get_update_fields()
+    note right: AnkiConnect "updateNoteFields"\nfor each note in notes_to_edit
+    Directory -> File : get_delete_notes()
+    note right: AnkiConnect "deleteNotes"\nfor all ids in notes_to_delete
+  end
+  Directory --> App : batched multi-action request
+  deactivate Directory
+
+  App -> AnkiConnect : invoke("multi", actions=stage1_requests)
+  activate AnkiConnect
+  AnkiConnect -> Anki : HTTP POST — multi (addNote, notesInfo,\nupdateNoteFields, deleteNotes)
+  Anki --> AnkiConnect : [new_note_ids, note_info_dicts, null, null]
+  AnkiConnect --> App : parsed response
+  deactivate AnkiConnect
+
+  App -> Directory : parse_requests_1(response, tags)
+  activate Directory
+  loop for each File
+    Directory -> File : get_cards(note_info_response)
+    note right: extract card IDs from notesInfo\nresult for deck-change operations
+    Directory -> File : write_ids()
+    note right: insert new IDs as comments\nback into the markdown source file
+    Directory -> File : remove_empties()
+    note right: remove DELETE markers\nfor successfully deleted notes
+    Directory -> File : write_file()
+    note right: atomic write:\n  1. write to .tmp\n  2. backup original → .bak\n  3. rename .tmp → original\n  4. delete .bak
+  end
+  deactivate Directory
+end
+
+== Stage 2: Deck / Tag Management ==
+
+loop for each Directory
+  App -> Directory : requests_2()
+  activate Directory
+  loop for each File
+    Directory -> File : get_change_decks()
+    note right: AnkiConnect "changeDeck"\nfor each card's target deck
+    Directory -> File : get_clear_tags()
+    note right: AnkiConnect "removeTags"\nclears all existing tags first
+    Directory -> File : get_add_tags()
+    note right: AnkiConnect "addTags"\napplies file tags + note tags
+  end
+  Directory --> App : batched multi-action request
+  deactivate Directory
+
+  App -> AnkiConnect : invoke("multi", actions=stage2_requests)
+  activate AnkiConnect
+  AnkiConnect -> Anki : HTTP POST — multi (changeDeck,\nremoveTags, addTags)
+  Anki --> AnkiConnect : [null, null, null]
+  AnkiConnect --> App : parsed response
+  deactivate AnkiConnect
+end
+
+== Finalize: Persist State ==
+
+App -> Directory : hashes() [for each directory]
+Directory --> App : {filepath: sha256_hash, ...}
+
+App -> Data : update_data_file({\n  "Added Media": globals.ADDED_MEDIA,\n  "File Hashes": {all_hashes}\n})
+activate Data
+Data -> Data : json.dump to atomics_data.json
+Data -> globals : (FILE_HASHES used on next run\nto skip unchanged files)
+deactivate Data
+
+note over App, Data
+  On the next run, Directory.__init__ checks FILE_HASHES
+  and skips any file whose SHA256 hash is unchanged,
+  avoiding unnecessary re-parsing and Anki API calls.
+end note
+
+@enduml
